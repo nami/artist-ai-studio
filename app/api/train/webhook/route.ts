@@ -1,9 +1,28 @@
 // app/api/train/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase';
 
 const WEBHOOK_SECRET = process.env.REPLICATE_WEBHOOK_SECRET || '';
+
+async function verifySignature(signature: string, rawBody: string, secret: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signatureBuffer = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(rawBody)
+  );
+  const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return signature === expectedSignature;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,12 +32,9 @@ export async function POST(req: NextRequest) {
     /* ── 2. Optional HMAC verification ────────────────────────── */
     if (WEBHOOK_SECRET) {
       const signature = req.headers.get('webhook-signature') ?? '';
-      const expected = crypto
-        .createHmac('sha256', WEBHOOK_SECRET)
-        .update(rawBody)
-        .digest('hex');
+      const isValid = await verifySignature(signature, rawBody, WEBHOOK_SECRET);
 
-      if (signature !== expected) {
+      if (!isValid) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
       }
     }
