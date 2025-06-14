@@ -3,7 +3,6 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { SoundProvider } from "@/contexts/sound-context"
-import { AuthProvider } from "@/contexts/auth-context"
 import { GlobalNavigation } from "@/components/global-navigation"
 import { RetroSpaceBackground } from "@/components/retro-space-background"
 import { Toaster } from "@/components/ui/sonner"
@@ -36,14 +35,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className} suppressHydrationWarning>
-        <AuthProvider>
-          <SoundProvider>
-            <RetroSpaceBackground />
-            <GlobalNavigation />
-            <main className="relative z-10 min-h-screen">{children}</main>
-            <Toaster />
-          </SoundProvider>
-        </AuthProvider>
+        <SoundProvider>
+          <RetroSpaceBackground />
+          <GlobalNavigation />
+          {/* Added pt-16 to account for the fixed navbar height (h-16 = 64px) */}
+          <main className="relative z-10 min-h-screen pt-16">{children}</main>
+          <Toaster />
+        </SoundProvider>
       </body>
     </html>
   )

@@ -6,13 +6,18 @@ import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import { Upload, Zap, GalleryThumbnailsIcon, ChevronRight, Sparkles, Star } from 'lucide-react'
 import { useSound } from "@/contexts/sound-context"
+import { useAuth } from "@/hooks/use-auth"
+import { AuthModals } from "@/components/auth/auth-modals"
 
 export default function LandingPage() {
   const router = useRouter()
   const { play, initialize } = useSound()
+  const { user, loading } = useAuth()
   const [isLoaded, setIsLoaded] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     initialize()
     const timer = setTimeout(() => setIsLoaded(true), 500)
     return () => clearTimeout(timer)
@@ -37,6 +42,36 @@ export default function LandingPage() {
   const item = {
     hidden: { y: 20, opacity: 0 },
     show: { y: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 100 } },
+  }
+
+  // Don't render auth-dependent content until mounted to prevent hydration issues
+  if (!mounted) {
+    return (
+      <div className="h-screen bg-black text-white relative overflow-hidden flex flex-col">
+        {/* Grid overlay */}
+        <div
+          className="absolute inset-0 z-0 opacity-20"
+          style={{
+            backgroundImage:
+              "linear-gradient(to right, #ff00ff10 1px, transparent 1px), linear-gradient(to bottom, #00ffff10 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+
+        {/* Scanlines */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden opacity-10">
+          <div className="scanlines h-full w-full"></div>
+        </div>
+
+        {/* Loading state */}
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-t-transparent border-cyan-400 rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="text-cyan-400 font-mono text-xl uppercase tracking-wide">LOADING</div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -107,111 +142,148 @@ export default function LandingPage() {
             Transform your images into AI-powered creations
           </motion.h2>
 
-          {/* CTA Button */}
-          <motion.div variants={item} className="mb-8">
-            <button
-              onClick={() => handleNavigation("/training")}
-              className="group relative inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 rounded-lg font-mono text-base uppercase tracking-wider overflow-hidden transition-all duration-300 hover:scale-105"
-              onMouseEnter={() => play("hover")}
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                Start Training <ChevronRight className="w-4 h-4" />
-              </span>
-              <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
-            </button>
-          </motion.div>
-        </motion.div>
+          {/* Auth-dependent content */}
+          {!loading && (
+            <>
+              {user ? (
+                // Show CTA button and feature cards for logged-in users
+                <>
+                  {/* CTA Button */}
+                  <motion.div variants={item} className="mb-8">
+                    <button
+                      onClick={() => handleNavigation("/training")}
+                      className="group relative inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 rounded-lg font-mono text-base uppercase tracking-wider overflow-hidden transition-all duration-300 hover:scale-105"
+                      onMouseEnter={() => play("hover")}
+                    >
+                      <span className="relative z-10 flex items-center gap-2">
+                        Start Training <ChevronRight className="w-4 h-4" />
+                      </span>
+                      <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                    </button>
+                  </motion.div>
 
-        {/* Feature Cards */}
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate={isLoaded ? "show" : "hidden"}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
-        >
-          {/* Training Card */}
-          <Link
-            href="/training"
-            onClick={() => play("click")}
-            className="block"
-          >
-            <motion.div
-              variants={item}
-              whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
-              className="group relative"
-              onMouseEnter={() => play("hover")}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-pink-500 to-purple-600 rounded-xl blur-sm opacity-70"></div>
-              <div className="relative border-2 border-pink-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
-                <div className="bg-pink-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
-                  <Upload className="w-5 h-5 text-pink-400" />
-                </div>
-                <h3 className="text-lg font-mono font-bold text-pink-400 mb-2">Training</h3>
-                <p className="text-gray-400 text-sm mb-3 flex-grow">
-                  Upload your images and train the AI to understand your style.
-                </p>
-                <div className="inline-flex items-center font-mono text-xs text-pink-400 group-hover:text-white transition-colors">
-                  Start Training <ChevronRight className="w-3 h-3 ml-1" />
-                </div>
-              </div>
-            </motion.div>
-          </Link>
+                  {/* Feature Cards - Only for authenticated users */}
+                  <motion.div
+                    variants={container}
+                    initial="hidden"
+                    animate={isLoaded ? "show" : "hidden"}
+                    className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
+                  >
+                    {/* Training Card */}
+                    <Link
+                      href="/training"
+                      onClick={() => play("click")}
+                      className="block"
+                    >
+                      <motion.div
+                        variants={item}
+                        whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
+                        className="group relative"
+                        onMouseEnter={() => play("hover")}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-br from-pink-500 to-purple-600 rounded-xl blur-sm opacity-70"></div>
+                        <div className="relative border-2 border-pink-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
+                          <div className="bg-pink-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
+                            <Upload className="w-5 h-5 text-pink-400" />
+                          </div>
+                          <h3 className="text-lg font-mono font-bold text-pink-400 mb-2">Training</h3>
+                          <p className="text-gray-400 text-sm mb-3 flex-grow">
+                            Upload your images and train the AI to understand your style.
+                          </p>
+                          <div className="inline-flex items-center font-mono text-xs text-pink-400 group-hover:text-white transition-colors">
+                            Start Training <ChevronRight className="w-3 h-3 ml-1" />
+                          </div>
+                        </div>
+                      </motion.div>
+                    </Link>
 
-          {/* Generate Card */}
-          <Link
-            href="/generate"
-            onClick={() => play("click")}
-            className="block"
-          >
-            <motion.div
-              variants={item}
-              whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
-              className="group relative"
-              onMouseEnter={() => play("hover")}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl blur-sm opacity-70"></div>
-              <div className="relative border-2 border-cyan-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
-                <div className="bg-cyan-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
-                  <Zap className="w-5 h-5 text-cyan-400" />
-                </div>
-                <h3 className="text-lg font-mono font-bold text-cyan-400 mb-2">Generate</h3>
-                <p className="text-gray-400 text-sm mb-3 flex-grow">
-                  Create amazing AI-generated images based on your training data.
-                </p>
-                <div className="inline-flex items-center font-mono text-xs text-cyan-400 group-hover:text-white transition-colors">
-                  Generate Images <ChevronRight className="w-3 h-3 ml-1" />
-                </div>
-              </div>
-            </motion.div>
-          </Link>
+                    {/* Generate Card */}
+                    <Link
+                      href="/generate"
+                      onClick={() => play("click")}
+                      className="block"
+                    >
+                      <motion.div
+                        variants={item}
+                        whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
+                        className="group relative"
+                        onMouseEnter={() => play("hover")}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl blur-sm opacity-70"></div>
+                        <div className="relative border-2 border-cyan-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
+                          <div className="bg-cyan-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
+                            <Zap className="w-5 h-5 text-cyan-400" />
+                          </div>
+                          <h3 className="text-lg font-mono font-bold text-cyan-400 mb-2">Generate</h3>
+                          <p className="text-gray-400 text-sm mb-3 flex-grow">
+                            Create amazing AI-generated images based on your training data.
+                          </p>
+                          <div className="inline-flex items-center font-mono text-xs text-cyan-400 group-hover:text-white transition-colors">
+                            Generate Images <ChevronRight className="w-3 h-3 ml-1" />
+                          </div>
+                        </div>
+                      </motion.div>
+                    </Link>
 
-          {/* Gallery Card */}
-          <Link
-            href="/gallery"
-            onClick={() => play("click")}
-            className="block"
-          >
-            <motion.div
-              variants={item}
-              whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
-              className="group relative"
-              onMouseEnter={() => play("hover")}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl blur-sm opacity-70"></div>
-              <div className="relative border-2 border-purple-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
-                <div className="bg-purple-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
-                  <GalleryThumbnailsIcon className="w-5 h-5 text-purple-400" />
-                </div>
-                <h3 className="text-lg font-mono font-bold text-purple-400 mb-2">Gallery</h3>
-                <p className="text-gray-400 text-sm mb-3 flex-grow">
-                  Browse and manage your collection of AI-generated masterpieces.
-                </p>
-                <div className="inline-flex items-center font-mono text-xs text-purple-400 group-hover:text-white transition-colors">
-                  View Gallery <ChevronRight className="w-3 h-3 ml-1" />
-                </div>
-              </div>
+                    {/* Gallery Card */}
+                    <Link
+                      href="/gallery"
+                      onClick={() => play("click")}
+                      className="block"
+                    >
+                      <motion.div
+                        variants={item}
+                        whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
+                        className="group relative"
+                        onMouseEnter={() => play("hover")}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl blur-sm opacity-70"></div>
+                        <div className="relative border-2 border-purple-500/50 bg-gray-900/90 rounded-lg p-4 h-full flex flex-col">
+                          <div className="bg-purple-500/20 rounded-full p-2 w-10 h-10 flex items-center justify-center mb-3">
+                            <GalleryThumbnailsIcon className="w-5 h-5 text-purple-400" />
+                          </div>
+                          <h3 className="text-lg font-mono font-bold text-purple-400 mb-2">Gallery</h3>
+                          <p className="text-gray-400 text-sm mb-3 flex-grow">
+                            Browse and manage your collection of AI-generated masterpieces.
+                          </p>
+                          <div className="inline-flex items-center font-mono text-xs text-purple-400 group-hover:text-white transition-colors">
+                            View Gallery <ChevronRight className="w-3 h-3 ml-1" />
+                          </div>
+                        </div>
+                      </motion.div>
+                    </Link>
+                  </motion.div>
+                </>
+              ) : (
+                // Show auth buttons for non-authenticated users
+                <motion.div variants={item} className="mb-8">
+                  <div className="text-yellow-400 font-mono text-lg mb-6">
+                    🚀 Ready to create? Sign in to get started!
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                    <AuthModals 
+                      buttonClassName="group relative bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 hover:from-cyan-500 hover:via-purple-500 hover:to-pink-500 text-white font-mono text-sm font-bold px-6 py-3 rounded-lg uppercase tracking-wider transition-all duration-300 hover:scale-105 border-2 border-cyan-300/20 hover:border-cyan-300/40"
+                      textClassName="text-white group-hover:text-white"
+                      iconClassName="w-4 h-4 text-white group-hover:text-white"
+                    />
+                  </div>
+                  
+                  <div className="mt-6 text-gray-400 font-mono text-sm">
+                    Generated with AI, made by you.
+                  </div>
+                </motion.div>
+              )}
+            </>
+          )}
+
+          {/* Loading state for auth */}
+          {loading && (
+            <motion.div variants={item} className="mb-8">
+              <div className="w-12 h-12 border-4 border-t-transparent border-cyan-400 rounded-full animate-spin mx-auto mb-4"></div>
+              <div className="text-cyan-400 font-mono text-sm">Checking authentication...</div>
             </motion.div>
-          </Link>
+          )}
         </motion.div>
 
         {/* Footer */}

@@ -1,96 +1,137 @@
 "use client"
 import { useState, useEffect } from "react"
-import { ArrowLeft, Pause, Play, Square, Clock, Zap, CheckCircle, AlertCircle, Cpu } from "lucide-react"
+import { ArrowLeft, Clock, Zap, CheckCircle, AlertCircle, Cpu, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface TrainingStep {
-  id: string
-  name: string
-  status: "pending" | "active" | "completed" | "error"
-  progress: number
-  estimatedTime?: number
-}
+import { useAuth } from "@/hooks/use-auth"
+import { supabase } from "@/lib/supabase"
+import { startTraining } from "@/lib/api-client"
+import { useToast } from "@/hooks/use-toast"
 
 interface TrainingDashboardProps {
   onClose: () => void
   trainingImages: Array<{ id: string; preview: string; name?: string }>
   playSound: (sound: string) => void
+  subjectName: string
+  subjectType: string
+  imageUrls: string[]
 }
 
-export function TrainingDashboard({ onClose, trainingImages, playSound }: TrainingDashboardProps) {
-  const [overallProgress, setOverallProgress] = useState(0)
-  const [currentStep, setCurrentStep] = useState(0)
-  const [isPaused, setIsPaused] = useState(false)
-  const [timeRemaining, setTimeRemaining] = useState(1800) // 30 minutes in seconds
-  const [trainingStatus, setTrainingStatus] = useState<"training" | "paused" | "completed" | "error" | "cancelled">(
-    "training",
-  )
+export function TrainingDashboard({ 
+  onClose, 
+  trainingImages, 
+  playSound,
+  subjectName,
+  subjectType,
+  imageUrls
+}: TrainingDashboardProps) {
+  const { user, isConfigured } = useAuth()
+  const { toast } = useToast()
+  
+  // Real training state
+  const [datasetId, setDatasetId] = useState<string | null>(null)
+  const [trainingId, setTrainingId] = useState<string | null>(null)
+  const [realTrainingStatus, setRealTrainingStatus] = useState<"pending" | "processing" | "completed" | "failed">("pending")
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [startTime, setStartTime] = useState<Date | null>(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
+  const [isTrainingStarted, setIsTrainingStarted] = useState(false)
 
-  const [steps, setSteps] = useState<TrainingStep[]>([
-    { id: "upload", name: "UPLOAD COMPLETE", status: "completed", progress: 100 },
-    { id: "processing", name: "PROCESSING IMAGES", status: "active", progress: 0 },
-    { id: "training", name: "NEURAL TRAINING", status: "pending", progress: 0 },
-    { id: "complete", name: "TRAINING COMPLETE", status: "pending", progress: 0 },
-  ])
-
-  // Simulate training progress
+  // Check configuration on mount
   useEffect(() => {
-    if (isPaused || trainingStatus !== "training") return
+    if (!isConfigured) {
+      setRealTrainingStatus("failed")
+      setErrorMessage("Supabase is not configured. Please check your environment variables.")
+      playSound("error")
+    }
+  }, [isConfigured, playSound])
 
-    const interval = setInterval(() => {
-      setSteps((prevSteps) => {
-        const newSteps = [...prevSteps]
-        const activeStepIndex = newSteps.findIndex((step) => step.status === "active")
+  // Manual training start function
+  const initiateTraining = async () => {
+    if (!user || !imageUrls.length) return
 
-        if (activeStepIndex !== -1) {
-          const activeStep = newSteps[activeStepIndex]
-          const increment = Math.random() * 3 + 1
+    try {
+      setStartTime(new Date())
+      setIsTrainingStarted(true)
+      
+      const result = await startTraining({
+        imageUrls,
+        subjectName,
+        subjectType,
+        userId: user.id,
+      })
+      
+      setDatasetId(result.datasetId)
+      setTrainingId(result.trainingId)
+      setRealTrainingStatus("processing")
+      
+      toast({
+        title: 'Training Started! 🎨',
+        description: 'Your model training has begun.',
+      })
+      
+      playSound("levelUp")
+    } catch (error) {
+      console.error('Training start error:', error)
+      setRealTrainingStatus("failed")
+      setErrorMessage("Failed to start training")
+      playSound("error")
+      setIsTrainingStarted(false)
+      
+      toast({
+        title: 'Training Failed',
+        description: 'Could not start training. Please try again.',
+        variant: 'destructive',
+      })
+    }
+  }
 
-          if (activeStep.progress < 100) {
-            activeStep.progress = Math.min(100, activeStep.progress + increment)
-          } else {
-            // Move to next step
-            activeStep.status = "completed"
-            if (activeStepIndex < newSteps.length - 1) {
-              newSteps[activeStepIndex + 1].status = "active"
-              setCurrentStep(activeStepIndex + 1)
-              playSound("levelUp")
-            } else {
-              setTrainingStatus("completed")
-              playSound("complete")
-            }
+  // Poll for training status updates
+  useEffect(() => {
+    if (!isConfigured || !datasetId) return
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('datasets')
+          .select('training_status, error_message, model_version')
+          .eq('id', datasetId)
+          .single()
+
+        if (error) throw error
+
+        if (data) {
+          setRealTrainingStatus(data.training_status)
+          setErrorMessage(data.error_message)
+          
+          // Update UI based on real status
+          if (data.training_status === "completed") {
+            playSound("complete")
+            clearInterval(pollInterval)
+          } else if (data.training_status === "failed") {
+            playSound("error")
+            clearInterval(pollInterval)
           }
         }
+      } catch (error) {
+        console.error('Status poll error:', error)
+      }
+    }, 5000) // Poll every 5 seconds
 
-        return newSteps
-      })
+    return () => clearInterval(pollInterval)
+  }, [datasetId, playSound, isConfigured])
 
-      // Update overall progress
-      setOverallProgress((prev) => {
-        const newProgress = Math.min(100, prev + Math.random() * 0.5)
-        if (newProgress >= 100) {
-          setTrainingStatus("completed")
-        }
-        return newProgress
-      })
+  // Update elapsed time
+  useEffect(() => {
+    if (!startTime || realTrainingStatus === "completed" || realTrainingStatus === "failed") return
 
-      // Update time remaining
-      setTimeRemaining((prev) => Math.max(0, prev - 1))
-    }, 100)
+    const interval = setInterval(() => {
+      const now = new Date()
+      const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
+      setElapsedTime(elapsed)
+    }, 1000)
 
     return () => clearInterval(interval)
-  }, [isPaused, trainingStatus, playSound])
-
-  const handlePauseResume = () => {
-    setIsPaused(!isPaused)
-    playSound("click")
-  }
-
-  const handleCancel = () => {
-    setTrainingStatus("cancelled")
-    playSound("error")
-    setTimeout(() => onClose(), 1000)
-  }
+  }, [startTime, realTrainingStatus])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -98,30 +139,37 @@ export function TrainingDashboard({ onClose, trainingImages, playSound }: Traini
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const getStatusDisplay = () => {
+    if (!isTrainingStarted) {
+      return { text: "READY TO START", color: "text-yellow-400", icon: <Clock className="w-4 h-4" /> }
+    }
+    
+    switch (realTrainingStatus) {
+      case "pending":
+        return { text: "INITIALIZING", color: "text-yellow-400", icon: <Loader2 className="w-4 h-4 animate-spin" /> }
+      case "processing":
+        return { text: "TRAINING", color: "text-cyan-400", icon: <Zap className="w-4 h-4 animate-pulse" /> }
       case "completed":
-        return "text-green-400 border-green-400"
-      case "active":
-        return "text-cyan-400 border-cyan-400"
-      case "error":
-        return "text-red-400 border-red-400"
+        return { text: "COMPLETE", color: "text-green-400", icon: <CheckCircle className="w-4 h-4" /> }
+      case "failed":
+        return { text: "FAILED", color: "text-red-400", icon: <AlertCircle className="w-4 h-4" /> }
       default:
-        return "text-gray-400 border-gray-600"
+        return { text: "UNKNOWN", color: "text-gray-400", icon: <Clock className="w-4 h-4" /> }
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle className="w-4 h-4" />
-      case "active":
-        return <Zap className="w-4 h-4 animate-pulse" />
-      case "error":
-        return <AlertCircle className="w-4 h-4" />
-      default:
-        return <Clock className="w-4 h-4" />
-    }
+  const statusDisplay = getStatusDisplay()
+
+  const getEstimatedTime = () => {
+    if (!isTrainingStarted) return "Click 'Start Training' to begin"
+    if (realTrainingStatus === "completed") return "Completed"
+    if (realTrainingStatus === "failed") return "Failed"
+    if (realTrainingStatus === "pending") return "Starting..."
+    
+    // Typical Flux training takes 20-40 minutes
+    const estimatedTotal = 25 * 60 // 25 minutes in seconds
+    const remaining = Math.max(0, estimatedTotal - elapsedTime)
+    return `~${formatTime(remaining)} remaining`
   }
 
   return (
@@ -170,143 +218,143 @@ export function TrainingDashboard({ onClose, trainingImages, playSound }: Traini
                   </h1>
                 </div>
               </div>
-              <div className="text-green-400 font-mono text-sm animate-pulse">
-                {trainingStatus === "training" ? "ACTIVE" : trainingStatus.toUpperCase()}
+              <div className={`${statusDisplay.color} font-mono text-sm animate-pulse flex items-center gap-2`}>
+                {statusDisplay.icon}
+                {statusDisplay.text}
               </div>
             </div>
-            <Button
-              onClick={() => {
-                playSound("click")
-                onClose()
-              }}
-              className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              BACK TO UPLOADER
-            </Button>
+            <div className="flex gap-2">
+              {!isTrainingStarted && realTrainingStatus !== "failed" && (
+                <Button
+                  onClick={() => {
+                    playSound("click")
+                    initiateTraining()
+                  }}
+                  disabled={!user || !isConfigured}
+                  className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-black font-bold font-mono uppercase tracking-wider px-6 py-2 text-base border-2 border-green-400 shadow-lg shadow-green-500/25"
+                >
+                  ⚡ START TRAINING
+                </Button>
+              )}
+              <Button
+                onClick={() => {
+                  playSound("click")
+                  onClose()
+                }}
+                className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                BACK TO UPLOADER
+              </Button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Left Column - Progress & Controls */}
-            <div className="lg:col-span-3 space-y-6">
-              {/* Circular Progress */}
-              <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-4">
-                <div className="flex items-center justify-center mb-4">
-                  <div className="relative w-32 h-32 md:w-40 md:h-40">
-                    {/* Background Circle */}
-                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="45"
-                        stroke="currentColor"
-                        strokeWidth="8"
-                        fill="none"
-                        className="text-gray-700"
-                      />
-                      {/* Progress Circle */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="45"
-                        stroke="currentColor"
-                        strokeWidth="8"
-                        fill="none"
-                        strokeDasharray={`${2 * Math.PI * 45}`}
-                        strokeDashoffset={`${2 * Math.PI * 45 * (1 - overallProgress / 100)}`}
-                        className="text-cyan-400 transition-all duration-500 ease-out"
-                        style={{
-                          filter: "drop-shadow(0 0 10px currentColor)",
-                        }}
-                      />
-                    </svg>
-                    {/* Center Content */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="text-4xl font-bold font-mono text-cyan-400 mb-1">
-                        {Math.round(overallProgress)}%
-                      </div>
-                      <div className="text-sm text-gray-400 font-mono uppercase tracking-wide">COMPLETE</div>
-                      <div className="text-xs text-yellow-400 font-mono mt-2">ETA: {formatTime(timeRemaining)}</div>
+          {/* Subject Info Display */}
+          <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div>
+                <span className="text-gray-400 font-mono text-sm uppercase">Subject:</span>
+                <div className="text-cyan-400 font-mono text-lg font-bold">{subjectName}</div>
+              </div>
+              <div>
+                <span className="text-gray-400 font-mono text-sm uppercase">Type:</span>
+                <div className="text-pink-400 font-mono text-lg font-bold">{subjectType}</div>
+              </div>
+              <div>
+                <span className="text-gray-400 font-mono text-sm uppercase">Images:</span>
+                <div className="text-yellow-400 font-mono text-lg font-bold">{trainingImages.length}</div>
+              </div>
+              <div>
+                <span className="text-gray-400 font-mono text-sm uppercase">Elapsed:</span>
+                <div className="text-green-400 font-mono text-lg font-bold">
+                  {!isTrainingStarted ? "--:--" : formatTime(elapsedTime)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column - Training Status */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Main Status Display */}
+              <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-8">
+                <div className="text-center space-y-6">
+                  <div className="flex items-center justify-center">
+                    <div className={`text-6xl ${statusDisplay.color}`}>
+                      {!isTrainingStarted ? (
+                        <Clock className="w-24 h-24" />
+                      ) : realTrainingStatus === "processing" ? (
+                        <Loader2 className="w-24 h-24 animate-spin" />
+                      ) : realTrainingStatus === "completed" ? (
+                        <CheckCircle className="w-24 h-24" />
+                      ) : realTrainingStatus === "failed" ? (
+                        <AlertCircle className="w-24 h-24" />
+                      ) : (
+                        <Clock className="w-24 h-24" />
+                      )}
                     </div>
                   </div>
-                </div>
+                  
+                  <div>
+                    <h2 className={`text-3xl font-bold font-mono ${statusDisplay.color} uppercase tracking-wider mb-2`}>
+                      {statusDisplay.text}
+                    </h2>
+                    <p className="text-gray-400 font-mono text-lg">
+                      {!isTrainingStarted ? (
+                        <>Ready to train model for <span className="text-cyan-400">{subjectName}</span></>
+                      ) : (
+                        <>Training model for <span className="text-cyan-400">{subjectName}</span></>
+                      )}
+                    </p>
+                  </div>
 
-                {/* Control Buttons */}
-                <div className="flex justify-center gap-4">
-                  <Button
-                    onClick={handlePauseResume}
-                    disabled={trainingStatus === "completed" || trainingStatus === "cancelled"}
-                    className="bg-yellow-900/80 border-2 border-yellow-400/50 text-yellow-300 hover:bg-yellow-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
-                    size="lg"
-                  >
-                    {isPaused ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}
-                    {isPaused ? "RESUME" : "PAUSE"}
-                  </Button>
-                  <Button
-                    onClick={handleCancel}
-                    disabled={trainingStatus === "completed" || trainingStatus === "cancelled"}
-                    className="bg-red-900/80 border-2 border-red-400/50 text-red-300 hover:bg-red-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
-                    size="lg"
-                  >
-                    <Square className="w-4 h-4 mr-2" />
-                    CANCEL
-                  </Button>
+                  <div className="bg-black/60 border border-gray-600/50 rounded-lg p-4">
+                    <div className="text-yellow-400 font-mono text-lg">
+                      {getEstimatedTime()}
+                    </div>
+                    {realTrainingStatus === "processing" && (
+                      <div className="text-gray-400 font-mono text-sm mt-2">
+                        Training typically takes 20-40 minutes
+                      </div>
+                    )}
+                    {!isTrainingStarted && (
+                      <div className="text-gray-400 font-mono text-sm mt-2">
+                        Review your images and click start when ready
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Step Progress */}
+              {/* System Status */}
               <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-6">
                 <h3 className="text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
                   <Cpu className="w-5 h-5 text-pink-400" />
-                  TRAINING PIPELINE
+                  REPLICATE STATUS
                 </h3>
-                <div className="space-y-4">
-                  {steps.map((step, index) => (
-                    <div key={step.id} className="flex items-center gap-4">
-                      {/* Step Icon */}
-                      <div
-                        className={`w-10 h-10 rounded-full border-2 flex items-center justify-center ${getStatusColor(step.status)} backdrop-blur-sm`}
-                      >
-                        {getStatusIcon(step.status)}
-                      </div>
-
-                      {/* Step Content */}
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-mono text-sm text-white uppercase tracking-wide">{step.name}</span>
-                          <span className="font-mono text-xs text-gray-400">{Math.round(step.progress)}%</span>
-                        </div>
-                        {/* Progress Bar */}
-                        <div className="w-full bg-gray-700/50 h-2 rounded-full overflow-hidden backdrop-blur-sm">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              step.status === "completed"
-                                ? "bg-green-500"
-                                : step.status === "active"
-                                  ? "bg-gradient-to-r from-cyan-500 to-pink-500"
-                                  : "bg-gray-600"
-                            }`}
-                            style={{
-                              width: `${step.progress}%`,
-                              filter: step.status === "active" ? "drop-shadow(0 0 8px currentColor)" : "none",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-2 text-sm font-mono">
+                  <div className="text-green-400">✓ MODEL: FLUX DEV LORA TRAINER</div>
+                  <div className="text-green-400">✓ GPU: H100 (NVIDIA)</div>
+                  <div className={`${realTrainingStatus === "processing" ? "text-cyan-400" : "text-gray-400"}`}>
+                    ⚡ STATUS: {realTrainingStatus.toUpperCase()}
+                  </div>
+                  <div className="text-yellow-400">⏳ STEPS: 1000</div>
+                  <div className="text-pink-400">🧠 LORA RANK: 16</div>
+                  {trainingId && (
+                    <div className="text-blue-400">🔗 TRAINING ID: {trainingId.slice(0, 8)}...</div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Right Column - Training Images Preview */}
-            <div className="lg:col-span-2 space-y-6">
+            {/* Right Column - Training Images */}
+            <div className="space-y-6">
               <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-6">
                 <h3 className="text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
                   <Zap className="w-5 h-5 text-yellow-400" />
                   TRAINING DATA
                 </h3>
-                <div className="grid grid-cols-4 gap-2 max-h-[280px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 pr-1">
+                <div className="grid grid-cols-3 gap-2 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
                   {trainingImages.map((image, index) => (
                     <div
                       key={image.id}
@@ -321,41 +369,23 @@ export function TrainingDashboard({ onClose, trainingImages, playSound }: Traini
                         className="w-full h-full object-cover"
                       />
                       {/* Processing Overlay */}
-                      {currentStep === 1 && (
+                      {isTrainingStarted && realTrainingStatus === "processing" && (
                         <div className="absolute inset-0 bg-cyan-500/20 flex items-center justify-center">
                           <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                      )}
-                      {/* Training Overlay */}
-                      {currentStep === 2 && (
-                        <div className="absolute inset-0 bg-pink-500/20 flex items-center justify-center">
-                          <div className="text-pink-400 text-xs font-mono animate-pulse">AI</div>
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
-                <div className="mt-2 text-center text-xs font-mono text-gray-400">
-                  {trainingImages.length} IMAGES TOTAL
-                </div>
-              </div>
-
-              {/* Status Messages */}
-              <div className="bg-black/40 backdrop-blur-sm border-2 border-gray-600/50 rounded-xl p-6">
-                <h3 className="text-lg font-bold font-mono text-white uppercase tracking-wide mb-4">SYSTEM STATUS</h3>
-                <div className="space-y-2 text-sm font-mono">
-                  <div className="text-green-400">✓ GPU ACCELERATION: ENABLED</div>
-                  <div className="text-green-400">✓ MEMORY USAGE: OPTIMAL</div>
-                  <div className="text-cyan-400">⚡ NEURAL NETWORK: ACTIVE</div>
-                  <div className="text-yellow-400">⏳ BATCH SIZE: 32</div>
-                  <div className="text-pink-400">🧠 LEARNING RATE: 0.001</div>
+                <div className="mt-4 text-center text-xs font-mono text-gray-400">
+                  {trainingImages.length} IMAGES UPLOADED
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Success/Error States */}
-          {trainingStatus === "completed" && (
+          {/* Success State */}
+          {realTrainingStatus === "completed" && (
             <div className="mt-8 bg-green-900/40 border-2 border-green-400/50 rounded-xl p-6 backdrop-blur-sm">
               <div className="text-center">
                 <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
@@ -363,13 +393,12 @@ export function TrainingDashboard({ onClose, trainingImages, playSound }: Traini
                   TRAINING COMPLETE!
                 </h2>
                 <p className="text-green-300 font-mono mb-6">
-                  Your AI model has been successfully trained and is ready for deployment.
+                  Your AI model "{subjectName}" has been successfully trained and is ready for deployment.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Button
                     onClick={() => {
                       playSound("levelUp")
-                      // Navigate to AI generation interface
                       window.location.href = "/generate"
                     }}
                     className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white font-bold font-mono uppercase tracking-wider px-8 py-4 text-lg border-2 border-purple-400 shadow-lg shadow-purple-500/25"
@@ -393,14 +422,51 @@ export function TrainingDashboard({ onClose, trainingImages, playSound }: Traini
             </div>
           )}
 
-          {trainingStatus === "cancelled" && (
+          {/* Error State */}
+          {realTrainingStatus === "failed" && (
             <div className="mt-8 bg-red-900/40 border-2 border-red-400/50 rounded-xl p-6 backdrop-blur-sm">
               <div className="text-center">
                 <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
                 <h2 className="text-2xl font-bold font-mono text-red-400 uppercase tracking-wider mb-2">
-                  TRAINING CANCELLED
+                  TRAINING FAILED
                 </h2>
-                <p className="text-red-300 font-mono">Training process has been terminated. Progress has been saved.</p>
+                {errorMessage ? (
+                  <div className="mb-4">
+                    <p className="text-red-300 font-mono mb-2">Error Details:</p>
+                    <div className="bg-black/60 border border-red-500/30 rounded-lg p-3 mx-auto max-w-md">
+                      <code className="text-red-200 text-sm font-mono break-words">
+                        {errorMessage}
+                      </code>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-red-300 font-mono mb-4">
+                    An unexpected error occurred during training. Please try again.
+                  </p>
+                )}
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Button
+                    onClick={() => {
+                      playSound("click")
+                      onClose()
+                    }}
+                    className="bg-red-900/80 border-2 border-red-400/50 text-red-300 hover:bg-red-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
+                    size="lg"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    BACK TO UPLOADER
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      playSound("click")
+                      window.location.reload()
+                    }}
+                    className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
+                    size="lg"
+                  >
+                    TRY AGAIN
+                  </Button>
+                </div>
               </div>
             </div>
           )}

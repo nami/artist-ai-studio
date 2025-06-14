@@ -1,89 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Replicate from 'replicate';
-import { supabaseAdmin } from '@/lib/supabase';
-import { nanoid } from 'nanoid';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN!,
-});
+const WEBHOOK_SECRET = process.env.REPLICATE_WEBHOOK_SECRET || '';
 
-export async function POST(request: NextRequest) {
+async function verifySignature(signature: string, rawBody: string, secret: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signatureBuffer = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(rawBody)
+  );
+  const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return signature === expectedSignature;
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { imageUrls, subjectName, subjectType, userId } = body;
+    /* ── 1. Read raw body (needed if we verify) ───────────────── */
+    const rawBody = await req.text();
 
-    // ─── 1. basic validation ─────────────────────────────────────
-    if (!imageUrls?.length || !subjectName || !userId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    /* ── 2. Optional HMAC verification ────────────────────────── */
+    if (WEBHOOK_SECRET) {
+      const signature = req.headers.get('webhook-signature') ?? '';
+      const isValid = await verifySignature(signature, rawBody, WEBHOOK_SECRET);
+
+      if (!isValid) {
+        console.error('Invalid webhook signature');
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      }
     }
 
-    // ─── 2. create dataset row  ─────────────────────────────────
-    const { data: dataset, error: dbError } = await supabaseAdmin
-      .from('datasets')
-      .insert({
-        user_id: userId,
-        name: `${subjectName} Model`,
-        subject_name: subjectName,
-        subject_type: subjectType,
-        trigger_word: `ohwx ${subjectName.toLowerCase()}`,
-        training_status: 'processing'
-      })
-      .select()
-      .single();
+    /* ── 3. Parse JSON payload ────────────────────────────────── */
+    const data = JSON.parse(rawBody);
+    console.log('Webhook received:', { 
+      status: data.status, 
+      id: data.id,
+      version: data.version 
+    });
 
-    if (dbError) throw dbError;
+    // Map Replicate status to our database status
+    let dbStatus: 'completed' | 'failed' | 'processing' = 'processing';
+    if (data.status === 'succeeded') {
+      dbStatus = 'completed';
+    } else if (data.status === 'failed' || data.status === 'canceled') {
+      dbStatus = 'failed';
+    }
 
-    // ─── 3. persist training images ─────────────────────────────
-    const imageRecords = imageUrls.map((url: string) => ({
-      dataset_id: dataset.id,
-      image_url: url
-    }));
-
-    await supabaseAdmin.from('training_images').insert(imageRecords);
-
-    // ─── 4. build input payload for the LoRA trainer ────────────
-    const trainingData = {
-      input_images: imageUrls.join(','),
-      trigger_word: dataset.trigger_word,
-      steps: 300,
-      lora_rank: 16
+    /* ── 4. Build update payload for datasets row ─────────────── */
+    const update: Record<string, unknown> = {
+      training_status: dbStatus
     };
 
-    // ─── 5. kick off Replicate training ─────────────────────────
-    const training = await replicate.trainings.create(
-      'ostris',
-      'flux-dev-lora-trainer',
-      '4a182a1313585278de25a8fdc9f60530d93f7ef7ebbbb1c0e3b2c864e3b6b7d4',
-      {
-        destination: `${process.env.REPLICATE_USERNAME}/flux-${nanoid(6)}`,
-        input: trainingData,
-        webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/train/webhook`,
-        webhook_events_filter: ['completed']  // ← only “completed”
-      }
-    );
+    // Handle success case
+    if (dbStatus === 'completed') {
+      update.model_version = data.version || data.output?.version;
+      update.error_message = null; // Clear any previous errors
+    }
+    
+    // Handle failure case
+    if (dbStatus === 'failed') {
+      update.error_message = data.error || 'Training failed';
+    }
 
-    // ─── 6. store training ids back into the dataset row ────────
-    await supabaseAdmin
+    /* ── 5. Write back via training_id ────────────────────────── */
+    const { error } = await supabaseAdmin
       .from('datasets')
-      .update({
-        training_id: training.id,
-        model_version: training.version    // ← use .version
-      })
-      .eq('id', dataset.id);
+      .update(update)
+      .eq('training_id', data.id);
 
-    return NextResponse.json({
-      datasetId: dataset.id,
-      trainingId: training.id,
-      status: 'processing'
-    });
-  } catch (error) {
-    console.error('Training error:', error);
-    return NextResponse.json(
-      { error: 'Failed to start training' },
-      { status: 500 }
-    );
+    if (error) {
+      console.error('Database update error:', error);
+      throw error;
+    }
+
+    console.log('Successfully updated dataset for training:', data.id, 'Status:', dbStatus);
+    return NextResponse.json({ received: true });
+
+  } catch (err) {
+    console.error('Replicate webhook error:', err);
+    return NextResponse.json({ error: 'processing failed' }, { status: 500 });
   }
 }
+
+// Use nodejs runtime for better compatibility
+export const runtime = 'nodejs';

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { ImageGallery } from "@/components/image-gallery"
 import { useSoundEffects } from "@/hooks/use-sound-effects"
+import { ProtectedRoute } from "@/components/auth/protected-route"
 
 export default function Gallery() {
   const router = useRouter()
@@ -32,8 +33,10 @@ export default function Gallery() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <ImageGallery onBack={handleBack} playSound={(sound: string) => play(sound as "click" | "complete")} />
-    </div>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-black">
+        <ImageGallery onBack={handleBack} playSound={(sound: string) => play(sound as "click" | "complete")} />
+      </div>
+    </ProtectedRoute>
   )
 }

@@ -1,24 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Upload, Zap, GalleryThumbnailsIcon as Gallery, Home, Menu, X, Volume2, VolumeX, LogIn, UserPlus } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Upload, Zap, GalleryThumbnailsIcon as Gallery, Menu, X, Volume2, VolumeX, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSound } from "@/contexts/sound-context"
 import { AuthModals } from "./auth/auth-modals"
+import { useAuth } from "@/hooks/use-auth"
 
 const navigation = [
-  { name: "Training", href: "/training", icon: Upload },
-  { name: "Generate", href: "/generate", icon: Zap },
-  { name: "Gallery", href: "/gallery", icon: Gallery },
+  { name: "Training", href: "/training", icon: Upload, protected: true },
+  { name: "Generate", href: "/generate", icon: Zap, protected: true },
+  { name: "Gallery", href: "/gallery", icon: Gallery, protected: true },
 ]
 
 export function GlobalNavigation() {
   const pathname = usePathname()
+  const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const { playSound, isMuted, toggleMute, initialize } = useSound()
   const [isHovering, setIsHovering] = useState<string | null>(null)
+  const { user, signOut, loading } = useAuth()
+  const [mounted, setMounted] = useState(false)
+
+  // Fix hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleSoundToggle = () => {
     initialize()
@@ -31,72 +40,113 @@ export function GlobalNavigation() {
     setIsMobileMenuOpen(false)
   }
 
-  return (
-    <>
-      {/* Desktop Navigation */}
-      <nav className="hidden lg:block fixed top-0 left-0 right-0 z-50 bg-black">
-        {/* Scanlines effect */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-15">
-          <div className="scanlines h-full w-full"></div>
+  const handleSignOut = async () => {
+    try {
+      playSound("click")
+      await signOut()
+      
+      // Force redirect to home page after sign out
+      router.push('/')
+      router.refresh() // Force a hard refresh to clear any cached state
+      
+      // Close mobile menu if open
+      setIsMobileMenuOpen(false)
+    } catch (error) {
+      console.error('Sign out error:', error)
+    }
+  }
+
+  // Filter navigation items based on auth state (only show protected routes if user is authenticated)
+  const filteredNavigation = navigation.filter(item => !item.protected || (user && !loading))
+
+  // Don't render anything until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <nav className="fixed top-0 left-0 right-0 z-50">
+        <div className="bg-black/80 backdrop-blur-sm border-b border-gray-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              {/* Logo */}
+              <Link href="/" className="flex items-center">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 blur-[1px]"></div>
+                  <div className="relative bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 p-0.5 rounded-sm">
+                    <div className="bg-black px-2 py-1 rounded-sm">
+                      <h1 className="text-xs font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-300 to-pink-400 uppercase tracking-wider">
+                        🎮 ARTIST AI STUDIO
+                      </h1>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Placeholder for navigation items */}
+              <div className="hidden md:flex items-center space-x-4">
+                {/* Placeholder space */}
+              </div>
+
+              {/* Right side placeholder */}
+              <div className="flex items-center space-x-4">
+                <div className="w-32 h-8 bg-transparent"></div>
+                <button className="md:hidden p-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+                  <Menu className="w-5 h-5 text-gray-400" />
+                </button>
+                <button className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+                  <Volume2 className="w-4 h-4 text-cyan-400" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+      </nav>
+    )
+  }
 
-        {/* Top border - pixelated */}
-        <div className="h-1 w-full bg-gradient-to-r from-purple-600 via-cyan-500 to-pink-500"></div>
-
-        <div className="w-full mx-auto px-6 py-2 relative">
-          <div className="flex items-center justify-between">
+  return (
+    <nav className="fixed top-0 left-0 right-0 z-50">
+      <div className="bg-black/80 backdrop-blur-sm border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <div className="flex items-center">
-              <Link
-                href="/"
-                onClick={() => handleNavClick("/")}
-                onMouseEnter={() => playSound("hover")}
-                className="relative group"
-              >
+            <Link href="/" className="flex items-center" onClick={() => playSound("click")}>
+              <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 blur-[1px]"></div>
                 <div className="relative bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 p-0.5 rounded-sm">
-                  <div className="bg-black px-3 py-1 rounded-sm flex items-center gap-2">
-                    <img src="/pixel-cat-icon.png" alt="Artist AI Studio Cat Logo" width={32} height={32} className="inline-block align-middle" />
-                    <h1 className="text-sm font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-300 to-pink-400 uppercase tracking-wider">
+                  <div className="bg-black px-2 py-1 rounded-sm flex items-center gap-2">
+                    <img 
+                      src="/pixel-cat-icon.png" 
+                      alt="Pixel Cat" 
+                      className="w-6 h-6 object-contain"
+                    />
+                    <h1 className="text-xs font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-300 to-pink-400 uppercase tracking-wider">
                       ARTIST AI STUDIO
                     </h1>
                   </div>
                 </div>
-              </Link>
-            </div>
+              </div>
+            </Link>
 
-            {/* Navigation Links */}
-            <div className="flex items-center space-x-2">
-              {navigation.map((item) => {
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center space-x-4">
+              {filteredNavigation.map((item) => {
                 const isActive = pathname === item.href
-                const isHovered = isHovering === item.href
-
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
                     onClick={() => handleNavClick(item.href)}
-                    onMouseEnter={() => {
-                      setIsHovering(item.href)
-                      playSound("hover")
-                    }}
-                    onMouseLeave={() => setIsHovering(null)}
                     className={cn(
                       "relative group flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-150",
                       isActive ? "text-white" : "text-gray-400 hover:text-white",
+                      "focus:outline-none"
                     )}
+                    onMouseEnter={() => {
+                      playSound("hover")
+                      setIsHovering(item.name)
+                    }}
+                    onMouseLeave={() => setIsHovering(null)}
                   >
-                    {/* Button background with pixelated border */}
-                    <div
-                      className={cn(
-                        "absolute inset-0 transition-all duration-150",
-                        isActive || isHovered
-                          ? "bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2 border-t-cyan-400 border-l-purple-500 border-r-pink-500 border-b-gray-800"
-                          : "opacity-0 group-hover:opacity-100 bg-gray-800/50",
-                      )}
-                    ></div>
-
-                    {/* Icon and text */}
+                    <span className="absolute inset-0 transition-all duration-150 opacity-0 group-hover:opacity-100 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2 border-t-cyan-400 border-l-purple-500 border-r-pink-500 border-b-gray-800 rounded-md"></span>
                     <div className="relative flex items-center gap-1.5">
                       <item.icon
                         className={cn(
@@ -114,7 +164,7 @@ export function GlobalNavigation() {
                       </span>
                     </div>
 
-                    {/* Active indicator - pixelated bottom highlight */}
+                    {/* Active indicator */}
                     {isActive && (
                       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500"></div>
                     )}
@@ -123,216 +173,113 @@ export function GlobalNavigation() {
               })}
             </div>
 
-            {/* Auth Modals and Sound Toggle */}
-            <div className="flex items-center">
-              <AuthModals />
+            {/* Right side items */}
+            <div className="flex items-center space-x-4">
+              {/* Conditional Auth Display */}
+              {loading ? (
+                // Show loading state
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-8 bg-gray-800 animate-pulse rounded"></div>
+                </div>
+              ) : user ? (
+                // Show Sign Out when logged in
+                <div className="flex items-center space-x-4">
+                  <span className="text-gray-400 font-mono text-xs truncate max-w-32">
+                    {user.email}
+                  </span>
+                  <button
+                    onClick={handleSignOut}
+                    className={cn(
+                      "relative group flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-150",
+                      "text-gray-400 hover:text-white",
+                      "focus:outline-none"
+                    )}
+                    onMouseEnter={() => playSound('hover')}
+                  >
+                    <span className="absolute inset-0 transition-all duration-150 opacity-0 group-hover:opacity-100 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2 border-t-cyan-400 border-l-purple-500 border-r-pink-500 border-b-gray-800 rounded-md"></span>
+                    <span className="relative flex items-center gap-1.5">
+                      <LogOut className="w-3.5 h-3.5 text-gray-400 group-hover:text-cyan-400" />
+                      <span className="text-gray-400 group-hover:text-white">Sign Out</span>
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                // Show Auth Modals when not logged in
+                <AuthModals />
+              )}
+
+              {/* Mobile menu button */}
               <button
-                onClick={handleSoundToggle}
-                className={cn("relative group flex items-center justify-center w-8 h-8 transition-all duration-150 ml-2")}
-                aria-label={isMuted ? "Unmute sound effects" : "Mute sound effects"}
+                onClick={() => {
+                  setIsMobileMenuOpen(!isMobileMenuOpen)
+                  playSound("click")
+                }}
+                className="md:hidden p-1.5 rounded-lg hover:bg-gray-800 transition-colors"
                 onMouseEnter={() => playSound("hover")}
               >
-                {/* Button background with pixelated border */}
-                <div
-                  className={cn(
-                    "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
-                    isMuted
-                      ? "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800"
-                      : "border-t-cyan-400 border-l-cyan-500 border-r-cyan-500 border-b-gray-800",
-                  )}
-                ></div>
-
-                {/* Icon */}
-                <div className="relative">
-                  {isMuted ? (
-                    <VolumeX className="w-4 h-4 text-gray-400" />
-                  ) : (
-                    <Volume2 className="w-4 h-4 text-cyan-400" />
-                  )}
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom border - pixelated */}
-        <div className="h-1 w-full bg-gradient-to-r from-gray-800 via-gray-700 to-gray-800"></div>
-      </nav>
-
-      {/* Mobile Navigation */}
-      <div className="lg:hidden">
-        {/* Mobile Header */}
-        <div className="fixed top-0 left-0 right-0 z-50 bg-black">
-          {/* Scanlines effect */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-15">
-            <div className="scanlines h-full w-full"></div>
-          </div>
-
-          {/* Top border - pixelated */}
-          <div className="h-1 w-full bg-gradient-to-r from-purple-600 via-cyan-500 to-pink-500"></div>
-
-          <div className="flex items-center justify-between px-3 py-2 relative">
-            {/* Mobile Menu Button - Retro style */}
-            <button
-              onClick={() => {
-                setIsMobileMenuOpen(!isMobileMenuOpen)
-                playSound("click")
-              }}
-              className="relative w-8 h-8 flex items-center justify-center"
-            >
-              {/* Button background with pixelated border */}
-              <div
-                className={cn(
-                  "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
-                  isMobileMenuOpen
-                    ? "border-t-cyan-400 border-l-cyan-500 border-r-cyan-500 border-b-gray-800"
-                    : "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800",
-                )}
-              ></div>
-
-              {/* Icon */}
-              <div className="relative">
                 {isMobileMenuOpen ? (
-                  <X className="w-4 h-4 text-cyan-400" />
+                  <X className="w-5 h-5 text-gray-400" />
                 ) : (
-                  <Menu className="w-4 h-4 text-gray-400" />
+                  <Menu className="w-5 h-5 text-gray-400" />
                 )}
-              </div>
-            </button>
+              </button>
 
-            {/* Mobile Logo */}
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 blur-[1px]"></div>
-              <div className="relative bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 p-0.5 rounded-sm">
-                <div className="bg-black px-2 py-1 rounded-sm">
-                  <h1 className="text-xs font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-300 to-pink-400 uppercase tracking-wider">
-                    🎮 ARTIST AI STUDIO
-                  </h1>
-                </div>
-              </div>
-            </div>
-
-            {/* Auth Modals */}
-            <AuthModals />
-          </div>
-
-          {/* Bottom border - pixelated */}
-          <div className="h-1 w-full bg-gradient-to-r from-gray-800 via-gray-700 to-gray-800"></div>
-        </div>
-
-        {/* Mobile Menu Overlay */}
-        {isMobileMenuOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-70 z-40" onClick={() => setIsMobileMenuOpen(false)} />
-        )}
-
-        {/* Mobile Menu - Retro style */}
-        <div
-          className={cn(
-            "fixed top-0 left-0 h-full w-64 bg-black transform transition-transform duration-300 z-50",
-            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full",
-          )}
-        >
-          {/* Scanlines effect */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-15">
-            <div className="scanlines h-full w-full"></div>
-          </div>
-
-          {/* Right border - pixelated */}
-          <div className="absolute top-0 right-0 bottom-0 w-1 bg-gradient-to-b from-purple-600 via-cyan-500 to-pink-500"></div>
-
-          <div className="pt-16 p-4">
-            {/* Mobile Navigation Links */}
-            <div className="space-y-2">
-              {navigation.map((item) => {
-                const isActive = pathname === item.href
-
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={() => handleNavClick(item.href)}
-                    className="relative block"
-                  >
-                    {/* Button background with pixelated border */}
-                    <div
-                      className={cn(
-                        "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
-                        isActive
-                          ? "border-t-cyan-400 border-l-purple-500 border-r-pink-500 border-b-gray-800"
-                          : "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800",
-                      )}
-                    ></div>
-
-                    {/* Content */}
-                    <div className="relative flex items-center gap-3 px-4 py-2.5">
-                      <item.icon className={cn("w-4 h-4", isActive ? "text-cyan-400" : "text-gray-400")} />
-                      <span
-                        className={cn(
-                          "font-mono text-sm uppercase tracking-wide",
-                          isActive ? "text-white" : "text-gray-400",
-                        )}
-                      >
-                        {item.name}
-                      </span>
-                    </div>
-
-                    {/* Active indicator - pixelated left highlight */}
-                    {isActive && (
-                      <div className="absolute top-2 bottom-2 left-0 w-0.5 bg-gradient-to-b from-purple-500 via-cyan-400 to-pink-500"></div>
-                    )}
-                  </Link>
-                )
-              })}
-            </div>
-
-            {/* Mobile Sound Status - Retro style */}
-            <div className="mt-6 relative">
-              {/* Background with pixelated border */}
-              <div className="absolute inset-0 bg-gradient-to-b from-gray-800 to-gray-900 border-t border-l border-r border-b border-gray-700"></div>
-
-              {/* Content */}
-              <div className="relative flex items-center justify-between p-3">
-                <span className="text-gray-400 font-mono text-xs uppercase tracking-wide">Sound Effects</span>
-                <span
-                  className={cn(
-                    "font-mono text-xs uppercase tracking-wide px-2 py-0.5",
-                    isMuted
-                      ? "bg-red-900/30 text-red-400 border border-red-800"
-                      : "bg-green-900/30 text-green-400 border border-green-800",
-                  )}
-                >
-                  {isMuted ? "OFF" : "ON"}
-                </span>
-              </div>
+              {/* Sound Toggle */}
+              <button
+                onClick={handleSoundToggle}
+                className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+                onMouseEnter={() => playSound("hover")}
+              >
+                {isMuted ? (
+                  <VolumeX className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <Volume2 className="w-4 h-4 text-cyan-400" />
+                )}
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Spacer for fixed navigation - NO WHITE SPACE */}
-      <div className="h-12 lg:h-14" />
-
-      {/* CSS for scanlines */}
-      <style jsx global>{`
-        .scanlines {
-          background: linear-gradient(
-            to bottom,
-            rgba(255, 255, 255, 0) 50%,
-            rgba(0, 0, 0, 0.2) 50%
-          );
-          background-size: 100% 4px;
-          animation: scanlines 0.2s linear infinite;
-        }
-        
-        @keyframes scanlines {
-          0% {
-            background-position: 0 0;
-          }
-          100% {
-            background-position: 0 4px;
-          }
-        }
-      `}</style>
-    </>
+      {/* Mobile menu */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden bg-black/95 backdrop-blur-sm border-b border-gray-800">
+          <div className="px-2 pt-2 pb-3 space-y-1">
+            {filteredNavigation.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={() => handleNavClick(item.href)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-md text-base font-medium",
+                    isActive
+                      ? "bg-gray-800 text-white"
+                      : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                  )}
+                  onMouseEnter={() => playSound("hover")}
+                >
+                  <item.icon className="w-5 h-5" />
+                  {item.name}
+                </Link>
+              )
+            })}
+            
+            {/* Mobile Sign Out */}
+            {!loading && user && (
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-2 px-3 py-2 rounded-md text-base font-medium text-gray-400 hover:bg-gray-800 hover:text-white w-full text-left"
+                onMouseEnter={() => playSound("hover")}
+              >
+                <LogOut className="w-5 h-5" />
+                Sign Out
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </nav>
   )
 }

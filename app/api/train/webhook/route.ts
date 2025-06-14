@@ -1,6 +1,5 @@
-// app/api/train/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const WEBHOOK_SECRET = process.env.REPLICATE_WEBHOOK_SECRET || '';
 
@@ -35,25 +34,41 @@ export async function POST(req: NextRequest) {
       const isValid = await verifySignature(signature, rawBody, WEBHOOK_SECRET);
 
       if (!isValid) {
+        console.error('Invalid webhook signature');
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
       }
     }
 
     /* ── 3. Parse JSON payload ────────────────────────────────── */
     const data = JSON.parse(rawBody);
-    // data.status : "succeeded" | "failed" | ...
-    // data.version: "<owner>/<model>:sha"
-    // data.error   (string) only on failure
+    console.log('Webhook received:', { 
+      status: data.status, 
+      id: data.id,
+      version: data.version 
+    });
 
-    const status = data.status === 'succeeded' ? 'completed' : 'failed';
+    // Map Replicate status to our database status
+    let dbStatus: 'completed' | 'failed' | 'processing' = 'processing';
+    if (data.status === 'succeeded') {
+      dbStatus = 'completed';
+    } else if (data.status === 'failed' || data.status === 'canceled') {
+      dbStatus = 'failed';
+    }
 
     /* ── 4. Build update payload for datasets row ─────────────── */
     const update: Record<string, unknown> = {
-      training_status: status,
-      model_version: data.version               // always store slug
+      training_status: dbStatus
     };
-    if (status === 'failed') {
-      update.error_message = data.error ?? 'Training failed';
+
+    // Handle success case
+    if (dbStatus === 'completed') {
+      update.model_version = data.version || data.output?.version;
+      update.error_message = null; // Clear any previous errors
+    }
+    
+    // Handle failure case
+    if (dbStatus === 'failed') {
+      update.error_message = data.error || 'Training failed';
     }
 
     /* ── 5. Write back via training_id ────────────────────────── */
@@ -62,14 +77,19 @@ export async function POST(req: NextRequest) {
       .update(update)
       .eq('training_id', data.id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Database update error:', error);
+      throw error;
+    }
 
+    console.log('Successfully updated dataset for training:', data.id, 'Status:', dbStatus);
     return NextResponse.json({ received: true });
+
   } catch (err) {
     console.error('Replicate webhook error:', err);
     return NextResponse.json({ error: 'processing failed' }, { status: 500 });
   }
 }
 
-/* Edge runtime is perfect for tiny JSON webhooks */
-export const runtime = 'edge';
+// Use nodejs runtime for better compatibility
+export const runtime = 'nodejs';

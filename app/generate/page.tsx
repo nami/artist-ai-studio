@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation"
 import AIImageGenerator from "@/components/ai-image-generator"
 import { useSound } from "@/contexts/sound-context"
 import { toast } from "sonner"
+import { ProtectedRoute } from "@/components/auth/protected-route"
 
 export default function GeneratePage() {
   const router = useRouter()
-  // Correctly alias 'play' from context to 'playSound'
   const { initialize: initializeSounds, play: playSound } = useSound()
   const [isLoading, setIsLoading] = useState(true)
   const [editedImage, setEditedImage] = useState<any>(null)
@@ -22,7 +22,7 @@ export default function GeneratePage() {
         const parsedImage = JSON.parse(storedEditedImage)
         setEditedImage(parsedImage)
         sessionStorage.removeItem("editedImage")
-        if (playSound) playSound("complete") // Check if playSound is defined before calling
+        if (playSound) playSound("complete")
         toast.info("Edited image loaded into generator.")
       } catch (error) {
         console.error("Failed to parse edited image:", error)
@@ -33,7 +33,7 @@ export default function GeneratePage() {
   }, [initializeSounds, playSound])
 
   const handleBack = useCallback(() => {
-    if (playSound) playSound("click") // Check if playSound is defined
+    if (playSound) playSound("click")
     router.push("/training")
   }, [router, playSound])
 
@@ -52,8 +52,10 @@ export default function GeneratePage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <AIImageGenerator onBack={handleBack} editedImage={editedImage} />
-    </div>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-black">
+        <AIImageGenerator onBack={handleBack} editedImage={editedImage} />
+      </div>
+    </ProtectedRoute>
   )
 }
