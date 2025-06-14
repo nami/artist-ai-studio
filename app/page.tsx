@@ -36,7 +36,7 @@ export default function LandingPage() {
 
   const item = {
     hidden: { y: 20, opacity: 0 },
-    show: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 100 } },
+    show: { y: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 100 } },
   }
 
   return (
@@ -223,7 +223,7 @@ export default function LandingPage() {
         >
           <p className="text-gray-500 font-mono text-xs">
             <span className="inline-flex items-center">
-              <Sparkles className="w-3 h-3 mr-1 text-cyan-400" /> Powered by AI Studio
+              <Sparkles className="w-3 h-3 mr-1 text-cyan-400" /> Powered by your creativity.
             </span>
           </p>
         </motion.div>

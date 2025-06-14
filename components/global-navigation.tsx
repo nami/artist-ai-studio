@@ -3,9 +3,10 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Upload, Zap, GalleryThumbnailsIcon as Gallery, Home, Menu, X, Volume2, VolumeX } from "lucide-react"
+import { Upload, Zap, GalleryThumbnailsIcon as Gallery, Home, Menu, X, Volume2, VolumeX, LogIn, UserPlus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSound } from "@/contexts/sound-context"
+import { AuthModals } from "./auth/auth-modals"
 
 const navigation = [
   { name: "Training", href: "/training", icon: Upload },
@@ -54,9 +55,10 @@ export function GlobalNavigation() {
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 blur-[1px]"></div>
                 <div className="relative bg-gradient-to-r from-purple-500 via-cyan-400 to-pink-500 p-0.5 rounded-sm">
-                  <div className="bg-black px-3 py-1 rounded-sm">
+                  <div className="bg-black px-3 py-1 rounded-sm flex items-center gap-2">
+                    <img src="/pixel-cat-icon.png" alt="Artist AI Studio Cat Logo" width={32} height={32} className="inline-block align-middle" />
                     <h1 className="text-sm font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-cyan-300 to-pink-400 uppercase tracking-wider">
-                      🎮 ARTIST AI STUDIO
+                      ARTIST AI STUDIO
                     </h1>
                   </div>
                 </div>
@@ -121,32 +123,35 @@ export function GlobalNavigation() {
               })}
             </div>
 
-            {/* Sound Toggle - Retro style */}
-            <button
-              onClick={handleSoundToggle}
-              onMouseEnter={() => playSound("hover")}
-              className={cn("relative group flex items-center justify-center w-8 h-8 transition-all duration-150")}
-              aria-label={isMuted ? "Unmute sound effects" : "Mute sound effects"}
-            >
-              {/* Button background with pixelated border */}
-              <div
-                className={cn(
-                  "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
-                  isMuted
-                    ? "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800"
-                    : "border-t-cyan-400 border-l-cyan-500 border-r-cyan-500 border-b-gray-800",
-                )}
-              ></div>
+            {/* Auth Modals and Sound Toggle */}
+            <div className="flex items-center">
+              <AuthModals />
+              <button
+                onClick={handleSoundToggle}
+                className={cn("relative group flex items-center justify-center w-8 h-8 transition-all duration-150 ml-2")}
+                aria-label={isMuted ? "Unmute sound effects" : "Mute sound effects"}
+                onMouseEnter={() => playSound("hover")}
+              >
+                {/* Button background with pixelated border */}
+                <div
+                  className={cn(
+                    "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
+                    isMuted
+                      ? "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800"
+                      : "border-t-cyan-400 border-l-cyan-500 border-r-cyan-500 border-b-gray-800",
+                  )}
+                ></div>
 
-              {/* Icon */}
-              <div className="relative">
-                {isMuted ? (
-                  <VolumeX className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-cyan-400" />
-                )}
-              </div>
-            </button>
+                {/* Icon */}
+                <div className="relative">
+                  {isMuted ? (
+                    <VolumeX className="w-4 h-4 text-gray-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-cyan-400" />
+                  )}
+                </div>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -207,31 +212,8 @@ export function GlobalNavigation() {
               </div>
             </div>
 
-            {/* Mobile Sound Toggle - Retro style */}
-            <button
-              onClick={handleSoundToggle}
-              className="relative w-8 h-8 flex items-center justify-center"
-              aria-label={isMuted ? "Unmute sound effects" : "Mute sound effects"}
-            >
-              {/* Button background with pixelated border */}
-              <div
-                className={cn(
-                  "absolute inset-0 bg-gradient-to-b from-gray-700 to-gray-900 border-t-2 border-l border-r border-b-2",
-                  isMuted
-                    ? "border-t-gray-600 border-l-gray-600 border-r-gray-600 border-b-gray-800"
-                    : "border-t-cyan-400 border-l-cyan-500 border-r-cyan-500 border-b-gray-800",
-                )}
-              ></div>
-
-              {/* Icon */}
-              <div className="relative">
-                {isMuted ? (
-                  <VolumeX className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-cyan-400" />
-                )}
-              </div>
-            </button>
+            {/* Auth Modals */}
+            <AuthModals />
           </div>
 
           {/* Bottom border - pixelated */}

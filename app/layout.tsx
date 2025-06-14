@@ -1,14 +1,31 @@
 import type React from "react"
 import type { Metadata } from "next"
+import { Inter } from "next/font/google"
 import "./globals.css"
 import { SoundProvider } from "@/contexts/sound-context"
+import { AuthProvider } from "@/contexts/auth-context"
 import { GlobalNavigation } from "@/components/global-navigation"
 import { RetroSpaceBackground } from "@/components/retro-space-background"
 import { Toaster } from "@/components/ui/sonner"
 
+const inter = Inter({ subsets: ["latin"] })
+
 export const metadata: Metadata = {
-  title: "AI Artist Studio - Image Generator",
-  description: "Create and edit AI-generated images with your own images",
+  title: "Artist AI Studio",
+  description: "Transform your images into AI-powered creations",
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-96x96.png', type: 'image/png', sizes: '96x96' },
+      { url: '/web-app-manifest-192x192.png', type: 'image/png', sizes: '192x192' },
+      { url: '/web-app-manifest-512x512.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180' },
+    ],
+  },
+  manifest: '/site.webmanifest',
 }
 
 export default function RootLayout({
@@ -18,13 +35,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="bg-black min-h-screen">
-        <SoundProvider>
-          <RetroSpaceBackground />
-          <GlobalNavigation />
-          <main className="relative z-10 min-h-screen">{children}</main>
-          <Toaster />
-        </SoundProvider>
+      <body className={inter.className} suppressHydrationWarning>
+        <AuthProvider>
+          <SoundProvider>
+            <RetroSpaceBackground />
+            <GlobalNavigation />
+            <main className="relative z-10 min-h-screen">{children}</main>
+            <Toaster />
+          </SoundProvider>
+        </AuthProvider>
       </body>
     </html>
   )
