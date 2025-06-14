@@ -1,23 +1,25 @@
 # Artist AI Studio
 
-## Setup Instructions for New Mac
+## Setup Instructions for Mac (using Homebrew)
 
 ### Prerequisites
-1. Install Node.js (v20 or later)
+
+1. Install Homebrew (if not already installed)
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. Install Node.js (v20 or later)
    ```bash
    brew install node
    ```
 
-2. Install pnpm (Package Manager)
+3. Install pnpm (Package Manager)
    ```bash
-   curl -fsSL https://get.pnpm.io/install.sh | sh -
-   ```
-   After installation, restart your terminal or run:
-   ```bash
-   source ~/.zshrc
+   brew install pnpm
    ```
 
-3. Install Vercel CLI
+4. Install Vercel CLI
    ```bash
    pnpm add -g vercel
    ```
@@ -26,7 +28,7 @@
 
 1. Clone the repository
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/nami/artist-ai-studio.git
    cd artist-ai-studio
    ```
 
@@ -85,12 +87,14 @@
 
 1. If you encounter any build errors:
    - Make sure all environment variables are set correctly
-   - Check if pnpm is properly installed and in your PATH
-   - Verify Node.js version is compatible
+   - Check if pnpm is properly installed: `which pnpm`
+   - Verify Node.js version: `node --version`
+   - If pnpm commands fail, try: `brew reinstall pnpm`
 
 2. If Vercel CLI commands fail:
    - Run `vercel login` to ensure you're authenticated
    - Check if you have the correct project linked
+   - If Vercel CLI is not found, try: `brew reinstall pnpm && pnpm add -g vercel`
 
 ### Additional Notes
 
@@ -98,6 +102,7 @@
 - Environment variables are managed through Vercel
 - The project is configured to use Edge Runtime for API routes
 - Make sure to keep your `.env.local` file secure and never commit it to version control
+- If you get any permission errors, you might need to run: `sudo chown -R $(whoami) /usr/local/lib/node_modules`
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
