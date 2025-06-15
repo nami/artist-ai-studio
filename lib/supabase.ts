@@ -1,7 +1,6 @@
-// lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 
-// Debug environment variables
+// Debug environment variables (only on client)
 if (typeof window !== 'undefined') {
   console.log('Supabase Environment Check:', {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET',
@@ -21,40 +20,58 @@ if (!supabaseAnonKey) {
   console.error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable');
 }
 
-// Create a mock client for development if environment variables are missing
-const createMockClient = () => ({
-  auth: {
-    getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-    signInWithPassword: () => Promise.resolve({ error: new Error('Supabase not configured') }),
-    signUp: () => Promise.resolve({ error: new Error('Supabase not configured') }),
-    signOut: () => Promise.resolve({ error: new Error('Supabase not configured') }),
-  },
-  from: () => ({
-    select: () => ({
-      eq: () => ({
-        single: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') })
-      })
-    }),
-    insert: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
-    update: () => ({
-      eq: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') })
-    }),
-    delete: () => ({
-      eq: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') })
-    })
-  }),
-  channel: () => ({
-    on: () => ({ subscribe: () => {} }),
-    subscribe: () => {},
-    unsubscribe: () => {}
-  })
-});
+// Create a safe storage adapter that works in SSR
+const createBrowserStorage = () => {
+  // Check if we're in the browser
+  if (typeof window === 'undefined') {
+    // Return a no-op storage for server-side rendering
+    return {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    };
+  }
 
-// Client-side Supabase client (safe to use in components)
-export const supabase = supabaseUrl && supabaseAnonKey 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : createMockClient() as any;
+  // Return actual localStorage for client-side
+  return {
+    getItem: (key: string) => {
+      try {
+        return localStorage.getItem(key);
+      } catch (error) {
+        console.warn('localStorage.getItem failed:', error);
+        return null;
+      }
+    },
+    setItem: (key: string, value: string) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch (error) {
+        console.warn('localStorage.setItem failed:', error);
+      }
+    },
+    removeItem: (key: string) => {
+      try {
+        localStorage.removeItem(key);
+      } catch (error) {
+        console.warn('localStorage.removeItem failed:', error);
+      }
+    },
+  };
+};
+
+// Create Supabase client with SSR-safe configuration
+export const supabase = createClient(
+  supabaseUrl || '',
+  supabaseAnonKey || '',
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      storage: createBrowserStorage(),
+    },
+  }
+);
 
 // Flag to check if Supabase is properly configured
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
       controlImage,
       controlType, // 'pose', 'canny', 'depth'
       composition, // 'sitting', 'running', ...
+      // New parameters for AI Image Generator
+      steps,
+      guidance,
+      seed,
+      width = 512,
+      height = 512,
     } = body;
 
     /* ── 1. base model + input scaffold ───────────────────────── */
@@ -33,22 +39,48 @@ export async function POST(request: NextRequest) {
       prompt: finalPrompt,
       negative_prompt: negativePrompt || 'blurry, bad quality, distorted',
       num_outputs: 1,
-      guidance_scale: 0,
-      num_inference_steps: 4,
+      guidance_scale: guidance || 0, // Use provided guidance or default
+      num_inference_steps: steps || 4, // Use provided steps or default
+      width,
+      height,
     };
+
+    // Add seed if provided
+    if (seed !== undefined) {
+      input.seed = seed;
+    }
 
     /* ── 2. if user selected a trained model ──────────────────── */
     if (datasetId) {
       const { data: dataset } = await supabaseAdmin
         .from('datasets')
-        .select('model_version, trigger_word')
+        .select('model_version, trigger_word, subject_name')
         .eq('id', datasetId)
+        .eq('user_id', userId) // Security: ensure user owns this model
         .single();
 
       if (dataset?.model_version) {
-        model = dataset.model_version as ModelSlug; // cast to satisfy TS
-        finalPrompt = `${dataset.trigger_word} ${prompt}`;
-        input.prompt = finalPrompt;
+        // For trained models, use FLUX-DEV with LoRA
+        model = 'xlabs-ai/flux-dev-controlnet' as ModelSlug;
+        
+        // Apply LoRA model
+        input.lora = dataset.model_version;
+        input.lora_scale = 1.0;
+        
+        // Add trigger word if available
+        if (dataset.trigger_word) {
+          finalPrompt = `${dataset.trigger_word} ${prompt}`;
+          input.prompt = finalPrompt;
+        }
+        
+        // Update inference parameters for FLUX-DEV
+        input.guidance_scale = guidance || 7.5; // Higher guidance for better prompt following
+        input.num_inference_steps = steps || 20; // More steps for quality
+      } else {
+        return NextResponse.json(
+          { error: 'Model not found or not ready' },
+          { status: 404 }
+        );
       }
     }
 
@@ -66,9 +98,9 @@ export async function POST(request: NextRequest) {
         image: controlImage,
         structure: controlType,            // pose / canny / depth
         num_samples: 1,
-        image_resolution: 512,
-        ddim_steps: 20,
-        scale: 9,
+        image_resolution: Math.min(width, height), // Use smaller dimension
+        ddim_steps: steps || 20,
+        scale: guidance || 9,
         eta: 0,
         a_prompt: 'best quality, extremely detailed',
         n_prompt:
@@ -92,9 +124,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    console.log('Generating image with:', {
+      model,
+      prompt: finalPrompt.substring(0, 50) + '...',
+      hasCustomModel: !!datasetId,
+      parameters: { steps: input.num_inference_steps, guidance: input.guidance_scale, seed: input.seed }
+    });
+
     /* ── 5. run Replicate model ───────────────────────────────── */
     const output = await replicate.run(model, { input });
-    const imageUrl = Array.isArray(output) ? output[0] : output;
+    let imageUrl: string;
+    
+    // Handle different output formats
+    if (Array.isArray(output)) {
+      imageUrl = output[0];
+    } else if (typeof output === 'string') {
+      imageUrl = output;
+    } else if (output && typeof output === 'object' && 'url' in output) {
+      imageUrl = (output as any).url;
+    } else {
+      throw new Error('Unexpected output format from Replicate');
+    }
+
+    if (!imageUrl) {
+      throw new Error('No image URL returned from generation');
+    }
 
     /* ── 6. save generation row ───────────────────────────────── */
     const { data: generation } = await supabaseAdmin
@@ -105,19 +159,41 @@ export async function POST(request: NextRequest) {
         prompt: finalPrompt,
         negative_prompt: negativePrompt,
         image_url: imageUrl,
-        settings: { style, controlType, composition },
+        settings: { 
+          style, 
+          controlType, 
+          composition,
+          steps: input.num_inference_steps,
+          guidance: input.guidance_scale,
+          seed: input.seed,
+          width,
+          height
+        },
       })
       .select()
       .single();
 
     return NextResponse.json({
+      success: true,
       imageUrl,
       generationId: generation?.id,
+      prompt: finalPrompt,
+      modelId: datasetId,
+      settings: {
+        steps: input.num_inference_steps,
+        guidance: input.guidance_scale,
+        seed: input.seed,
+        width,
+        height
+      }
     });
   } catch (error) {
     console.error('Generation error:', error);
     return NextResponse.json(
-      { error: 'Failed to generate image' },
+      { 
+        error: 'Failed to generate image',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 },
     );
   }

@@ -1,42 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import {
-  ArrowLeft,
-  Wand2,
-  Settings,
-  History,
-  Lightbulb,
-  Copy,
-  Download,
-  ChevronDown,
-  ChevronUp,
-  Shuffle,
-  Zap,
-  Volume2,
-  VolumeX,
-  Sparkles,
-  Palette,
-  Cpu,
-  Target,
-  Clock,
-  Eye,
-  Heart,
-  Edit,
-  Loader2,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Slider } from "@/components/ui/slider"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Badge } from "@/components/ui/badge"
-import { saveGalleryImage, type GalleryImage } from "@/utils/gallery-storage"
-import { useRouter } from "next/navigation"
-import { useSound } from "@/contexts/sound-context"
-import { toast } from "sonner"
+import { useAuth } from "@/hooks/use-auth"
 
 interface AIImageGeneratorProps {
   onBack: () => void
@@ -49,11 +14,22 @@ interface GeneratedImage {
   style: string
   imageUrl: string
   timestamp: string
+  modelId?: string
+  modelName?: string
   settings: {
     steps: number
     guidance: number
-    seed: number
+    seed?: number
   }
+}
+
+interface TrainedModel {
+  id: string
+  subject_name: string
+  subject_type: string
+  model_version: string
+  created_at: string
+  training_status: 'completed' | 'processing' | 'failed'
 }
 
 interface PromptTemplate {
@@ -72,6 +48,7 @@ interface AnimatedElement {
   animationDuration: number;
 }
 
+// Copyright-free artistic styles
 const STYLE_PRESETS = [
   {
     id: "none",
@@ -80,100 +57,114 @@ const STYLE_PRESETS = [
     description: "Generate without applying any specific style",
   },
   {
-    id: "retro-pixel",
-    name: "Retro Pixel Art",
-    color: "from-green-500 to-lime-400",
-    description: "Classic 8-bit pixel art style",
+    id: "abstract-geometric",
+    name: "Abstract Geometric",
+    color: "from-blue-500 to-purple-400",
+    description: "Clean geometric shapes and abstract patterns",
   },
   {
-    id: "cyberpunk",
-    name: "Cyberpunk",
-    color: "from-purple-500 to-pink-400",
-    description: "Futuristic neon cyberpunk aesthetic",
+    id: "impressionist",
+    name: "Impressionist Style",
+    color: "from-yellow-500 to-orange-400",
+    description: "Soft brushstrokes and light effects, impressionist technique",
   },
   {
-    id: "synthwave",
-    name: "Synthwave",
-    color: "from-pink-500 to-orange-400",
-    description: "80s retro synthwave vibes",
+    id: "minimalist",
+    name: "Minimalist",
+    color: "from-gray-600 to-slate-400",
+    description: "Clean, simple composition with minimal elements",
   },
   {
-    id: "vaporwave",
-    name: "Vaporwave",
-    color: "from-cyan-500 to-purple-400",
-    description: "Dreamy vaporwave aesthetics",
+    id: "watercolor",
+    name: "Watercolor",
+    color: "from-cyan-500 to-blue-400",
+    description: "Flowing watercolor painting technique with soft edges",
   },
   {
-    id: "neon-noir",
-    name: "Neon Noir",
-    color: "from-blue-500 to-cyan-400",
-    description: "Dark neon-lit noir atmosphere",
-  },
-  {
-    id: "glitch-art",
-    name: "Glitch Art",
+    id: "vintage-poster",
+    name: "Vintage Poster",
     color: "from-red-500 to-yellow-400",
-    description: "Digital corruption and glitch effects",
+    description: "Retro advertisement poster style with bold colors",
+  },
+  {
+    id: "pencil-sketch",
+    name: "Pencil Sketch",
+    color: "from-gray-700 to-gray-500",
+    description: "Hand-drawn pencil sketch with shading and texture",
   },
 ]
 
+// Copyright-free prompt templates
 const PROMPT_TEMPLATES: PromptTemplate[] = [
   {
     id: "1",
-    name: "Retro Character",
-    prompt: "A pixelated character in retro game style, 8-bit graphics, vibrant colors",
-    category: "Characters",
-    emoji: "🎮",
+    name: "Mountain Landscape",
+    prompt: "Serene mountain landscape with rolling hills, clear sky, and natural lighting",
+    category: "Nature",
+    emoji: "🏔️",
   },
   {
     id: "2",
-    name: "Cyberpunk City",
-    prompt: "Futuristic cyberpunk cityscape with neon lights, flying cars, and holographic displays",
-    category: "Environments",
-    emoji: "🌃",
+    name: "Abstract Composition",
+    prompt: "Abstract geometric composition with flowing shapes and vibrant colors",
+    category: "Abstract",
+    emoji: "🎨",
   },
   {
     id: "3",
-    name: "Space Adventure",
-    prompt: "Retro space scene with pixel art spaceship, stars, and alien planets",
-    category: "Sci-Fi",
-    emoji: "🚀",
+    name: "Still Life",
+    prompt: "Simple still life arrangement with fruits, pottery, and natural lighting",
+    category: "Still Life",
+    emoji: "🍎",
   },
   {
     id: "4",
-    name: "Fantasy Castle",
-    prompt: "Medieval fantasy castle in pixel art style, magical atmosphere, glowing crystals",
-    category: "Fantasy",
-    emoji: "🏰",
+    name: "Forest Scene",
+    prompt: "Peaceful forest clearing with tall trees, dappled sunlight, and moss-covered ground",
+    category: "Nature",
+    emoji: "🌲",
   },
   {
     id: "5",
-    name: "Neon Portrait",
-    prompt: "Portrait with neon lighting effects, synthwave aesthetic, retro-futuristic style",
-    category: "Portraits",
-    emoji: "👾",
+    name: "Architectural Study",
+    prompt: "Modern architectural building with clean lines, glass surfaces, and geometric design",
+    category: "Architecture",
+    emoji: "🏢",
   },
   {
     id: "6",
-    name: "Glitch Effect",
-    prompt: "Digital glitch art effect, corrupted data visualization, colorful noise patterns",
-    category: "Abstract",
-    emoji: "⚡",
+    name: "Ocean Waves",
+    prompt: "Dynamic ocean waves crashing against rocky coastline with dramatic sky",
+    category: "Nature",
+    emoji: "🌊",
+  },
+  {
+    id: "7",
+    name: "Flower Garden",
+    prompt: "Colorful flower garden with blooming wildflowers and soft natural lighting",
+    category: "Nature",
+    emoji: "🌸",
+  },
+  {
+    id: "8",
+    name: "Desert Dunes",
+    prompt: "Vast desert landscape with sand dunes, clear blue sky, and warm golden hour lighting",
+    category: "Landscape",
+    emoji: "🏜️",
   },
 ]
 
 export default function AIImageGenerator({ onBack, editedImage }: AIImageGeneratorProps) {
-  const router = useRouter()
   const [prompt, setPrompt] = useState("")
   const [selectedStyle, setSelectedStyle] = useState("none")
+  const [selectedModel, setSelectedModel] = useState<string>("base")
+  const [trainedModels, setTrainedModels] = useState<TrainedModel[]>([])
+  const [isLoadingModels, setIsLoadingModels] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const [recentPrompts, setRecentPrompts] = useState<string[]>([])
   const [currentImage, setCurrentImage] = useState<GeneratedImage | null>(null)
-  const [isMuted, setIsMuted] = useState(false)
   const [steps, setSteps] = useState<number[]>([20])
   const [guidance, setGuidance] = useState<number[]>([7.5])
   const [seed, setSeed] = useState<number[]>([])
@@ -181,15 +172,42 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
   const [animatedElements, setAnimatedElements] = useState<AnimatedElement[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const {
-    play: playSound,
-    isMuted: isGlobalMuted,
-    toggleMute: toggleGlobalMute,
-    initialize: initializeSounds,
-  } = useSound()
+
+  // Mock user for demo
+  // const mockUser = { id: "demo-user" }
+
+  // Real auth hook
+  const { user, loading: authLoading } = useAuth()
+
+  // Load trained models from database
+  useEffect(() => {
+    const loadModels = async () => {
+      if (!user?.id || authLoading) return
+      
+      setIsLoadingModels(true)
+      
+      try {
+        const response = await fetch(`/api/models?userId=${user.id}`)
+        if (response.ok) {
+          const models = await response.json()
+          setTrainedModels(models)
+          console.log(`Loaded ${models.length} trained models`)
+        } else {
+          console.error('Failed to fetch models:', response.statusText)
+          setTrainedModels([])
+        }
+      } catch (error) {
+        console.error('Failed to load models:', error)
+        setTrainedModels([])
+      } finally {
+        setIsLoadingModels(false)
+      }
+    }
+
+    loadModels()
+  }, [user?.id, authLoading])
 
   useEffect(() => {
-    initializeSounds()
     setIsClient(true)
     setSeed([Math.floor(Math.random() * 1000000)])
     
@@ -203,49 +221,64 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
     }));
     
     setAnimatedElements(elements);
-    
-    const placeholderImage = {
-      id: "demo-image",
-      prompt: "A beautiful landscape with mountains and sunset",
-      style: "none",
-      imageUrl: "https://picsum.photos/512/512?random=1",
-      timestamp: new Date().toISOString(),
-      settings: {
-        steps: 20,
-        guidance: 7.5,
-        seed: Math.floor(Math.random() * 1000000),
-      },
-    }
-    setGeneratedImages([placeholderImage])
-    setCurrentImage(placeholderImage)
   }, [])
 
   const handleGenerate = useCallback(async () => {
-    if (!prompt.trim() || isGenerating) {
-      if (!prompt.trim()) {
-        toast.error("Prompt cannot be empty.", { description: "Please describe the image you want to create." })
-      }
+    if (!prompt.trim() || isGenerating || !user?.id) {
       return
     }
 
     setIsGenerating(true)
-    playSound("upload")
-    const toastId = toast.loading("Generating your masterpiece...", {
-      description: "The AI is hard at work. This might take a moment.",
-    })
+    
+    // Combine style with prompt if style is selected
+    let finalPrompt = prompt
+    if (selectedStyle !== "none") {
+      const styleData = STYLE_PRESETS.find(s => s.id === selectedStyle)
+      if (styleData) {
+        finalPrompt = `${prompt}, ${styleData.description}`
+      }
+    }
 
     setRecentPrompts((prev) => {
       const updated = [prompt, ...prev.filter((p) => p !== prompt)].slice(0, 10)
       return updated
     })
 
-    setTimeout(() => {
+    try {
+      // Use the real generateImage function from api-client
+      const result = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: finalPrompt,
+          datasetId: selectedModel === "base" ? undefined : selectedModel,
+          steps: steps[0],
+          guidance: guidance[0],
+          seed: seed[0],
+          width: 512,
+          height: 512,
+          userId: user.id,
+        }),
+      })
+
+      if (!result.ok) {
+        const errorData = await result.json()
+        throw new Error(errorData.error || 'Generation failed')
+      }
+
+      const data = await result.json()
+      const selectedModelData = trainedModels.find(m => m.id === selectedModel)
+      
       const newImage: GeneratedImage = {
         id: Math.random().toString(36).substr(2, 9),
         prompt,
         style: selectedStyle,
-        imageUrl: `https://picsum.photos/512/512?random=${Math.floor(Math.random() * 1000)}`,
+        imageUrl: data.imageUrl,
         timestamp: new Date().toISOString(),
+        modelId: selectedModel === "base" ? undefined : selectedModel,
+        modelName: selectedModel === "base" ? "Base Model" : selectedModelData?.subject_name,
         settings: {
           steps: steps[0],
           guidance: guidance[0],
@@ -255,142 +288,45 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
 
       setGeneratedImages((prev) => [newImage, ...prev.filter((img) => img.id !== newImage.id)])
       setCurrentImage(newImage)
+      console.log('Image generated successfully:', data.imageUrl)
+      
+    } catch (error) {
+      console.error('Generation failed:', error)
+      // You can add error toast/notification here if needed
+      alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
       setIsGenerating(false)
-      playSound("complete")
-      toast.success("Image generated successfully!", {
-        id: toastId,
-        description: `Prompt: ${prompt.substring(0, 30)}... Style: ${STYLE_PRESETS.find((s) => s.id === selectedStyle)?.name || "None"}`,
-      })
-    }, 3000)
-  }, [prompt, selectedStyle, steps, guidance, seed, isGenerating, playSound])
+    }
+  }, [prompt, selectedStyle, selectedModel, steps, guidance, seed, isGenerating, trainedModels, user?.id])
 
   const handleTemplateSelect = (template: PromptTemplate) => {
     setPrompt(template.prompt)
-    playSound("click")
     setIsTemplatesOpen(false)
     textareaRef.current?.focus()
-    toast.info("Template applied!", { description: `Using "${template.name}" template.` })
-  }
-
-  const handlePromptFromHistory = (historicalPrompt: string) => {
-    setPrompt(historicalPrompt)
-    playSound("click")
-    setIsHistoryOpen(false)
-    textareaRef.current?.focus()
-    toast.info("Prompt loaded from history.")
   }
 
   const randomizeSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 1000000)
     setSeed([newSeed])
-    playSound("click")
-    toast.success(`Seed randomized to ${newSeed}!`, { description: "A new touch of chaos for your creation." })
-  }, [playSound])
+  }, [])
 
   const copyPrompt = () => {
-    if (!prompt) {
-      toast.error("Nothing to copy!", { description: "The prompt is empty." })
-      return
-    }
+    if (!prompt) return
     navigator.clipboard.writeText(prompt)
-    playSound("click")
-    toast.success("Prompt copied to clipboard!")
   }
 
   const downloadImage = (imageToDownload: GeneratedImage | null) => {
-    if (!imageToDownload) {
-      toast.error("No image selected to download.")
-      return
-    }
-    playSound("click")
-    toast.success("Image download started!", {
-      description: `Downloading: ${imageToDownload.prompt.substring(0, 20)}...`,
-    })
+    if (!imageToDownload) return
     const link = document.createElement("a")
     link.href = imageToDownload.imageUrl
-    link.download = `ai_image_${imageToDownload.id.substring(0, 6)}_${imageToDownload.prompt.substring(0, 10).replace(/\s/g, "_")}.png`
+    link.download = `ai_image_${imageToDownload.id.substring(0, 6)}.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
 
   const selectedStyleData = STYLE_PRESETS.find((style) => style.id === selectedStyle)
-
-  const saveToGallery = (imageToSave: GeneratedImage | null) => {
-    if (!imageToSave) {
-      toast.error("No image selected to save.")
-      return
-    }
-    
-    const galleryImage: GalleryImage = {
-      ...imageToSave,
-      timestamp: new Date(imageToSave.timestamp),
-      isFavorite: false,
-      tags: [
-        imageToSave.style,
-        ...imageToSave.prompt
-          .split(" ")
-          .filter((tag) => tag.length > 3)
-          .slice(0, 3),
-      ],
-      metadata: {
-        width: 512,
-        height: 512,
-        fileSize: Math.floor(Math.random() * (2048000 - 512000 + 1) + 512000),
-      },
-    }
-    
-    const saved = saveGalleryImage(galleryImage)
-    if (saved) {
-      playSound("complete")
-      toast.success("Image saved to gallery!", {
-        description: `"${imageToSave.prompt.substring(0, 30)}..." is now in your collection.`,
-      })
-    } else {
-      playSound("error")
-      toast.error("Failed to save image to gallery.", {
-        description: "There might be an issue with storage or the image data.",
-      })
-    }
-  }
-
-  const handleEditImage = useCallback(() => {
-    if (!currentImage) {
-      toast.error("No image selected for editing")
-      return
-    }
-    
-    playSound("click")
-    
-    try {
-      sessionStorage.setItem("editImageData", JSON.stringify(currentImage))
-      window.location.href = "/edit"
-    } catch (error) {
-      toast.error("Failed to prepare image for editing")
-    }
-  }, [currentImage])
-
-  useEffect(() => {
-    if (editedImage) {
-      const newImage: GeneratedImage = {
-        id: Math.random().toString(36).substr(2, 9),
-        prompt: editedImage.originalData?.prompt || editedImage.prompt || "Edited image",
-        style: editedImage.originalData?.style || editedImage.style || "none",
-        imageUrl: editedImage.imageUrl,
-        timestamp: new Date().toISOString(),
-        settings: {
-          steps: editedImage.originalData?.settings?.steps || editedImage.settings?.steps || 20,
-          guidance: editedImage.originalData?.settings?.guidance || editedImage.settings?.guidance || 7.5,
-          seed: editedImage.originalData?.settings?.seed || editedImage.settings?.seed || Math.floor(Math.random() * 1000000),
-        },
-      }
-
-      setGeneratedImages((prev) => [newImage, ...prev.filter((img) => img.id !== newImage.id)])
-      setCurrentImage(newImage)
-      playSound("complete")
-      toast.success("Image loaded from editor!", { description: "Ready for further generation or saving." })
-    }
-  }, [editedImage, playSound])
+  const selectedModelData = trainedModels.find(m => m.id === selectedModel)
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -400,19 +336,40 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
     return null
   }
 
+  // Show loading state while auth is loading
+  if (authLoading) {
+    return (
+      <div className="w-full min-h-screen bg-black p-2 sm:p-4 lg:p-6 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-t-transparent border-cyan-400 rounded-full animate-spin mx-auto"></div>
+          <div className="text-cyan-400 font-mono text-xl uppercase tracking-wide">Loading Auth...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show auth required message if not authenticated
+  if (!user) {
+    return (
+      <div className="w-full min-h-screen bg-black p-2 sm:p-4 lg:p-6 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="text-red-400 font-mono text-xl uppercase tracking-wide">🔒 Authentication Required</div>
+          <div className="text-gray-400 font-mono text-sm">Please sign in to use the AI Generator</div>
+          <button
+            onClick={onBack}
+            className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm px-4 py-2 rounded-lg"
+          >
+            ← BACK TO TRAINING
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full min-h-screen bg-black p-2 sm:p-4 lg:p-6">
-      <button
-        onClick={() => {
-          toggleGlobalMute()
-        }}
-        className="fixed top-4 right-4 z-50 bg-black border-2 border-gray-600 p-2 rounded-full hover:border-cyan-400 transition-colors duration-300"
-        aria-label={isGlobalMuted ? "Unmute sound effects" : "Mute sound effects"}
-      >
-        {isGlobalMuted ? <VolumeX className="w-5 h-5 text-gray-400" /> : <Volume2 className="w-5 h-5 text-cyan-400" />}
-      </button>
-
       <div className="bg-gray-900 p-4 sm:p-6 lg:p-8 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden">
+        {/* Scanline Effect */}
         <div className="absolute inset-0 pointer-events-none opacity-10">
           <div
             className="h-full w-full"
@@ -423,6 +380,7 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
           />
         </div>
 
+        {/* Animated Particles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {animatedElements.map((element) => (
             <div
@@ -438,6 +396,7 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
           ))}
         </div>
 
+        {/* Header */}
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
             <div className="bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 p-0.5 sm:p-1 rounded-lg animate-pulse">
@@ -452,98 +411,162 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
               <div className="text-green-400 font-mono text-xs sm:text-sm animate-pulse">NEURAL NET ONLINE</div>
             </div>
           </div>
-          <Button
-            onClick={() => {
-              playSound("click")
-              onBack()
-            }}
-            variant="outline"
-            className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2 hover:scale-105 transition-transform text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2"
+          <button
+            onClick={onBack}
+            className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2 hover:scale-105 transition-transform text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 rounded-md"
           >
-            <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4" />
-            BACK TO TRAINING
-          </Button>
+            ← BACK TO TRAINING
+          </button>
         </div>
 
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-purple-500/10">
-              <div className="flex items-center justify-between mb-4">
-                <Label className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide flex items-center gap-2">
-                  <Wand2 className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400 animate-pulse" />
-                  IMAGINATION INPUT
-                  <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-pink-400 animate-bounce" />
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className={`font-mono text-xs border-2 ${
-                      prompt.length > 400
-                        ? "border-red-400 text-red-400"
-                        : prompt.length > 300
-                          ? "border-yellow-400 text-yellow-400"
-                          : "border-green-400 text-green-400"
+            {/* Model Selection */}
+            <div className="bg-gradient-to-br from-black/60 via-cyan-900/20 to-blue-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/10">
+              <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-2 flex items-center gap-2">
+                🧠 SELECT TRAINED AI MODEL
+              </h3>
+              <div className="text-xs text-gray-400 mb-4">
+                Choose which model to use for generation. Train new models in the Training section with any images: pets, portraits, logos, art styles, products, etc.
+              </div>
+
+              {isLoadingModels ? (
+                <div className="flex items-center justify-center p-4">
+                  <div className="w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span className="text-cyan-400 font-mono text-sm">Loading your trained models...</span>
+                </div>
+              ) : trainedModels.length === 0 ? (
+                <div className="text-center p-4 bg-yellow-900/20 border border-yellow-400/30 rounded-lg">
+                  <div className="text-yellow-400 font-mono text-sm mb-2">
+                    🎓 No custom models yet!
+                  </div>
+                  <div className="text-gray-400 text-xs mb-3">
+                    Go to Training to create models with your own images:
+                  </div>
+                  <div className="text-xs text-gray-300 space-y-1">
+                    <div>📸 Upload pet photos → "My Dog" model</div>
+                    <div>🎨 Upload art samples → "My Style" model</div>
+                    <div>👤 Upload portraits → "My Face" model</div>
+                    <div>🏢 Upload brand assets → "Company Logo" model</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setSelectedModel("base")}
+                    className={`w-full p-3 rounded-lg border-2 transition-all font-mono text-left ${
+                      selectedModel === "base"
+                        ? "border-cyan-400 bg-cyan-900/30 text-cyan-300"
+                        : "border-gray-600/50 bg-gray-800/50 text-gray-300 hover:border-gray-400"
                     }`}
                   >
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 bg-gradient-to-r from-gray-500 to-gray-400 rounded-full flex-shrink-0"></div>
+                      <div>
+                        <div className="text-sm font-bold">🤖 Base Model (FLUX-DEV)</div>
+                        <div className="text-xs opacity-75">Standard AI - no custom training applied</div>
+                      </div>
+                      {selectedModel === "base" && (
+                        <div className="ml-auto">
+                          ⚡
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                  
+                  {trainedModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => setSelectedModel(model.id)}
+                      className={`w-full p-3 rounded-lg border-2 transition-all font-mono text-left ${
+                        selectedModel === model.id
+                          ? "border-purple-400 bg-purple-900/30 text-purple-300"
+                          : "border-gray-600/50 bg-gray-800/50 text-gray-300 hover:border-gray-400"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 bg-gradient-to-r from-purple-500 to-pink-400 rounded-full flex-shrink-0"></div>
+                        <div>
+                          <div className="text-sm font-bold">✨ {model.subject_name}</div>
+                          <div className="text-xs opacity-75">
+                            Custom {model.subject_type} model • Trained: {new Date(model.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                        {selectedModel === model.id && (
+                          <div className="ml-auto">
+                            ⚡
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedModel !== "base" && selectedModelData && (
+                <div className="mt-3 p-3 bg-gradient-to-r from-purple-900/50 to-pink-900/30 border border-purple-400/30 rounded-lg">
+                  <div className="text-purple-400 font-mono text-sm font-bold">
+                    ✨ Using Custom Model: {selectedModelData.subject_name}
+                  </div>
+                  <div className="text-gray-300 text-xs mt-1">
+                    This will generate images with the style/appearance of your trained {selectedModelData.subject_type} model
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Prompt Input */}
+            <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-purple-500/10">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide flex items-center gap-2">
+                  ✨ IMAGINATION INPUT
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono text-xs border rounded px-2 py-1 ${
+                    prompt.length > 400
+                      ? "border-red-400 text-red-400"
+                      : prompt.length > 300
+                        ? "border-yellow-400 text-yellow-400"
+                        : "border-green-400 text-green-400"
+                  }`}>
                     {prompt.length}/500
-                  </Badge>
-                  <Button
-                    size="icon"
-                    variant="outline"
+                  </span>
+                  <button
                     onClick={copyPrompt}
                     disabled={!prompt}
-                    className="bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:scale-105 transition-transform w-8 h-8 sm:w-9 sm:h-9"
-                    aria-label="Copy prompt"
+                    className="bg-gray-800 border border-gray-600 text-gray-300 hover:bg-gray-700 hover:scale-105 transition-transform w-8 h-8 text-xs rounded disabled:opacity-50"
+                    title="Copy prompt"
                   >
-                    <Copy className="w-3 h-3 sm:w-4 sm:h-4" />
-                  </Button>
+                    📋
+                  </button>
                 </div>
               </div>
 
-              <Textarea
+              <textarea
                 ref={textareaRef}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="✨ Describe your wildest dreams... (Ctrl+K to focus, Ctrl+Enter to create magic!)"
-                className="min-h-[100px] sm:min-h-[120px] bg-gray-800/50 border-2 border-purple-400/30 text-white placeholder-gray-400 font-mono resize-none focus:border-purple-400 focus:ring-purple-400/20 focus:ring-4 transition-all text-sm sm:text-base"
+                placeholder="✨ Describe your artistic vision... mountain landscape, abstract art, still life composition..."
+                className="w-full min-h-[100px] sm:min-h-[120px] bg-gray-800/50 border-2 border-purple-400/30 text-white placeholder-gray-400 font-mono resize-none focus:border-purple-400 focus:ring-purple-400/20 focus:ring-4 transition-all text-sm sm:text-base rounded-lg p-3"
                 maxLength={500}
               />
 
               <div className="flex flex-wrap gap-2 mt-4">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setIsTemplatesOpen(!isTemplatesOpen)
-                    playSound("click")
-                  }}
-                  className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono text-xs hover:scale-105 transition-transform flex-grow sm:flex-grow-0"
+                <button
+                  onClick={() => setIsTemplatesOpen(!isTemplatesOpen)}
+                  className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono text-xs hover:scale-105 transition-transform px-3 py-2 rounded-lg"
                 >
-                  <Lightbulb className="w-3 h-3 mr-1 animate-pulse" />
-                  MAGIC TEMPLATES
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setIsHistoryOpen(!isHistoryOpen)
-                    playSound("click")
-                  }}
-                  className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/50 font-mono text-xs hover:scale-105 transition-transform flex-grow sm:flex-grow-0"
-                >
-                  <History className="w-3 h-3 mr-1" />
-                  TIME MACHINE
-                </Button>
+                  💡 ART TEMPLATES
+                </button>
               </div>
 
-              <Collapsible open={isTemplatesOpen} onOpenChange={setIsTemplatesOpen}>
-                <CollapsibleContent className="mt-4">
+              {isTemplatesOpen && (
+                <div className="mt-4">
                   <div className="bg-gradient-to-br from-gray-800/50 to-purple-800/30 border-2 border-purple-400/30 rounded-lg p-3 sm:p-4 backdrop-blur-sm">
                     <h4 className="text-xs sm:text-sm font-mono text-purple-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" />
-                      INSPIRATION VAULT
+                      ✨ INSPIRATION VAULT
                     </h4>
-                    <ScrollArea className="h-48 sm:h-60">
+                    <div className="max-h-48 sm:max-h-60 overflow-y-auto">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                         {PROMPT_TEMPLATES.map((template) => (
                           <button
@@ -562,59 +585,23 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                           </button>
                         ))}
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
-                </CollapsibleContent>
-              </Collapsible>
-
-              <Collapsible open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-                <CollapsibleContent className="mt-4">
-                  <div className="bg-gradient-to-br from-gray-800/50 to-blue-800/30 border-2 border-blue-400/30 rounded-lg p-3 sm:p-4 backdrop-blur-sm">
-                    <h4 className="text-xs sm:text-sm font-mono text-blue-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <History className="w-3 h-3 sm:w-4 sm:h-4" />
-                      MEMORY BANK
-                    </h4>
-                    <ScrollArea className="h-48 sm:h-60">
-                      {recentPrompts.length > 0 ? (
-                        <div className="space-y-2">
-                          {recentPrompts.map((recentPrompt, index) => (
-                            <button
-                              key={index}
-                              onClick={() => handlePromptFromHistory(recentPrompt)}
-                              className="w-full text-left p-2 sm:p-3 bg-gradient-to-r from-gray-700/50 to-blue-700/30 hover:from-blue-700/50 hover:to-cyan-700/30 border border-gray-600/30 hover:border-blue-400/50 rounded text-xs sm:text-sm text-gray-300 font-mono transition-all hover:scale-[1.02]"
-                            >
-                              <span className="text-blue-400 mr-2">#{index + 1}</span>
-                              {recentPrompt}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-gray-500 text-xs sm:text-sm font-mono text-center py-4">
-                          <History className="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-2 opacity-50" />
-                          No memories yet... Create your first masterpiece!
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+                </div>
+              )}
             </div>
 
+            {/* Artistic Style */}
             <div className="bg-gradient-to-br from-black/60 via-pink-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-pink-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-pink-500/10">
-              <Label className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 block flex items-center gap-2">
-                <Palette className="w-4 h-4 sm:w-5 sm:h-5 text-pink-400 animate-pulse" />
-                ARTISTIC STYLE (OPTIONAL)
-                <Target className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-400" />
-              </Label>
+              <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
+                🎨 ARTISTIC STYLE (OPTIONAL)
+              </h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
                 {STYLE_PRESETS.map((style) => (
                   <button
                     key={style.id}
-                    onClick={() => {
-                      setSelectedStyle(style.id)
-                      playSound("click")
-                    }}
+                    onClick={() => setSelectedStyle(style.id)}
                     className={`relative p-3 sm:p-4 rounded-xl border-2 transition-all hover:scale-105 ${
                       selectedStyle === style.id
                         ? `border-white bg-gradient-to-br ${style.color} shadow-lg`
@@ -641,8 +628,8 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                       </div>
                     </div>
                     {selectedStyle === style.id && (
-                      <div className="absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 bg-white rounded-full flex items-center justify-center shadow-md">
-                        <Zap className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-purple-600" />
+                      <div className="absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 bg-white rounded-full flex items-center justify-center shadow-md text-xs">
+                        ⚡
                       </div>
                     )}
                   </button>
@@ -661,137 +648,123 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
               )}
             </div>
 
-            <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-              <CollapsibleTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full bg-gradient-to-r from-gray-800/50 to-cyan-800/30 border-2 border-cyan-400/50 text-white hover:bg-gray-700/50 font-mono justify-between hover:scale-105 transition-transform text-sm sm:text-base py-2.5 sm:py-3"
-                  onClick={() => playSound("click")}
-                >
-                  <div className="flex items-center gap-2">
-                    <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
-                    NEURAL PARAMETERS
-                    <Cpu className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400" />
-                  </div>
-                  {isAdvancedOpen ? (
-                    <ChevronUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  )}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-4">
-                <div className="bg-gradient-to-br from-black/60 via-cyan-900/20 to-blue-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-lg shadow-cyan-500/10">
-                  <div>
-                    <Label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
-                      <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-                      INFERENCE STEPS: {steps[0]}
-                      <Badge
-                        variant="outline"
-                        className="bg-yellow-400/20 text-yellow-400 border-yellow-400/50 text-xs"
-                      >
-                        {steps[0] < 15 ? "FAST" : steps[0] < 30 ? "BALANCED" : "QUALITY"}
-                      </Badge>
-                    </Label>
-                    <Slider value={steps} onValueChange={setSteps} max={50} min={10} step={1} className="w-full" />
-                    <div className="flex justify-between text-xs text-gray-400 font-mono mt-1">
-                      <span>⚡ FAST (10)</span>
-                      <span>🎯 QUALITY (50)</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
-                      <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-400" />
-                      GUIDANCE SCALE: {guidance[0]}
-                      <Badge
-                        variant="outline"
-                        className="bg-purple-400/20 text-purple-400 border-purple-400/50 text-xs"
-                      >
-                        {guidance[0] < 5 ? "CREATIVE" : guidance[0] < 12 ? "BALANCED" : "PRECISE"}
-                      </Badge>
-                    </Label>
-                    <Slider
-                      value={guidance}
-                      onValueChange={setGuidance}
-                      max={20}
-                      min={1}
-                      step={0.5}
-                      className="w-full"
-                    />
-                    <div className="flex justify-between text-xs text-gray-400 font-mono mt-1">
-                      <span>🎨 CREATIVE (1)</span>
-                      <span>🎯 PRECISE (20)</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
-                      <Shuffle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-400" />
-                      RANDOM SEED
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="number"
-                        value={seed[0]}
-                        onChange={(e) => setSeed([Number.parseInt(e.target.value) || 0])}
-                        className="bg-gray-800/50 border-2 border-green-400/30 text-white font-mono focus:border-green-400 focus:ring-green-400/20 text-sm sm:text-base"
-                      />
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        onClick={randomizeSeed}
-                        className="bg-gradient-to-r from-yellow-900/50 to-green-900/50 border-2 border-yellow-400/50 text-yellow-300 hover:bg-yellow-800/50 font-mono hover:scale-105 transition-transform w-10 h-10 sm:w-auto sm:px-3"
-                        aria-label="Randomize seed"
-                      >
-                        <Shuffle className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                      </Button>
-                    </div>
-                  </div>
+            {/* Generation Parameters */}
+            <div className="bg-gradient-to-br from-black/60 via-cyan-900/20 to-blue-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-lg shadow-cyan-500/10">
+              <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
+                ⚙️ NEURAL PARAMETERS
+              </h3>
+              
+              <div>
+                <label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
+                  ⚡ INFERENCE STEPS: {steps[0]}
+                  <span className={`text-xs px-2 py-1 rounded border ${
+                    steps[0] < 15 ? "bg-yellow-400/20 text-yellow-400 border-yellow-400/50" :
+                    steps[0] < 30 ? "bg-green-400/20 text-green-400 border-green-400/50" :
+                    "bg-blue-400/20 text-blue-400 border-blue-400/50"
+                  }`}>
+                    {steps[0] < 15 ? "FAST" : steps[0] < 30 ? "BALANCED" : "QUALITY"}
+                  </span>
+                </label>
+                <div className="text-xs text-gray-400 mb-2">
+                  How many denoising steps the AI takes. More steps = higher quality but slower generation.
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+                <input
+                  type="range"
+                  min="10"
+                  max="50"
+                  step="1"
+                  value={steps[0]}
+                  onChange={(e) => setSteps([parseInt(e.target.value)])}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-400 font-mono mt-1">
+                  <span>⚡ FAST (10) - 30s</span>
+                  <span>🎯 QUALITY (50) - 2min</span>
+                </div>
+              </div>
 
-            <Button
+              <div>
+                <label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
+                  🎯 GUIDANCE SCALE: {guidance[0]}
+                  <span className={`text-xs px-2 py-1 rounded border ${
+                    guidance[0] < 5 ? "bg-purple-400/20 text-purple-400 border-purple-400/50" :
+                    guidance[0] < 12 ? "bg-green-400/20 text-green-400 border-green-400/50" :
+                    "bg-blue-400/20 text-blue-400 border-blue-400/50"
+                  }`}>
+                    {guidance[0] < 5 ? "CREATIVE" : guidance[0] < 12 ? "BALANCED" : "PRECISE"}
+                  </span>
+                </label>
+                <div className="text-xs text-gray-400 mb-2">
+                  How closely the AI follows your prompt. Lower = more creative/artistic, Higher = more literal/precise.
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  step="0.5"
+                  value={guidance[0]}
+                  onChange={(e) => setGuidance([parseFloat(e.target.value)])}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-400 font-mono mt-1">
+                  <span>🎨 CREATIVE (1) - Artistic interpretation</span>
+                  <span>🎯 PRECISE (20) - Exact prompt following</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs sm:text-sm font-mono text-white uppercase tracking-wide mb-2 block flex items-center gap-2">
+                  🎲 RANDOM SEED
+                </label>
+                <div className="text-xs text-gray-400 mb-2">
+                  Controls randomness. Same seed + same prompt = identical results. Leave random for variety.
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={seed[0]}
+                    onChange={(e) => setSeed([parseInt(e.target.value) || 0])}
+                    className="flex-1 bg-gray-800/50 border-2 border-green-400/30 text-white font-mono focus:border-green-400 focus:ring-green-400/20 text-sm sm:text-base rounded-lg p-2"
+                    placeholder="Random number..."
+                  />
+                  <button
+                    onClick={randomizeSeed}
+                    className="bg-gradient-to-r from-yellow-900/50 to-green-900/50 border-2 border-yellow-400/50 text-yellow-300 hover:bg-yellow-800/50 font-mono hover:scale-105 transition-transform px-3 rounded-lg"
+                    title="Generate new random seed"
+                  >
+                    🎲
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Generate Button */}
+            <button
               onClick={handleGenerate}
               disabled={!prompt.trim() || isGenerating}
-              size="lg"
-              className="w-full bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 hover:from-purple-500 hover:via-pink-400 hover:to-cyan-400 text-white font-bold font-mono uppercase tracking-wider py-4 sm:py-6 text-lg sm:text-2xl border-2 sm:border-4 border-white/20 shadow-2xl shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-all duration-300 relative overflow-hidden"
+              className="w-full bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 hover:from-purple-500 hover:via-pink-400 hover:to-cyan-400 text-white font-bold font-mono uppercase tracking-wider py-4 sm:py-6 text-lg sm:text-2xl border-2 sm:border-4 border-white/20 shadow-2xl shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-all duration-300 relative overflow-hidden rounded-lg"
             >
               {isGenerating ? (
-                <div className="flex items-center gap-2 sm:gap-4">
-                  <Loader2 className="w-5 h-5 sm:w-8 sm:h-8 text-white animate-spin" />
+                <div className="flex items-center justify-center gap-2 sm:gap-4">
+                  <div className="w-5 h-5 sm:w-8 sm:h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   <span className="animate-pulse">CREATING MAGIC...</span>
-                  <Sparkles className="hidden sm:block w-5 h-5 sm:w-6 sm:h-6 animate-bounce" />
+                  <span className="hidden sm:block animate-bounce">✨</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 sm:gap-4">
-                  <Zap className="w-5 h-5 sm:w-8 sm:h-8 animate-pulse" />
+                <div className="flex items-center justify-center gap-2 sm:gap-4">
+                  <span className="animate-pulse">⚡</span>
                   <span>UNLEASH CREATIVITY</span>
-                  <Wand2 className="hidden sm:block w-5 h-5 sm:w-8 sm:h-8 animate-bounce" />
+                  <span className="hidden sm:block animate-bounce">🎨</span>
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 animate-[shimmer_2s_infinite]"></div>
-            </Button>
-            <Button
-              onClick={() => {
-                playSound("click")
-                router.push("/gallery")
-              }}
-              size="lg"
-              variant="outline"
-              className="w-full bg-gradient-to-r from-cyan-700/80 to-blue-600/80 hover:from-cyan-600/80 hover:to-blue-500/80 text-white font-bold font-mono uppercase tracking-wider py-3 sm:py-4 text-base sm:text-lg border-2 border-cyan-400/70 shadow-lg shadow-cyan-500/25 hover:scale-[1.03] transition-transform"
-            >
-              <Eye className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-              VIEW GALLERY
-            </Button>
+            </button>
           </div>
 
+          {/* Right Sidebar - Image Preview */}
           <div className="space-y-6">
             <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-purple-500/10">
               <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 animate-pulse" />
-                MASTERPIECE PREVIEW
+                ✨ MASTERPIECE PREVIEW
               </h3>
 
               {currentImage ? (
@@ -808,56 +781,35 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                   </div>
                   <div className="space-y-2 sm:space-y-3">
                     <div className="text-xs font-mono text-purple-400 uppercase flex items-center gap-1 sm:gap-2">
-                      <Wand2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                      PROMPT
+                      🎨 PROMPT
                     </div>
-                    <div className="text-xs sm:text-sm text-white font-mono bg-gradient-to-r from-gray-800/50 to-purple-800/30 p-2 sm:p-3 rounded-lg border border-purple-400/30 line-clamp-3">
+                    <div className="text-xs sm:text-sm text-white font-mono bg-gradient-to-r from-gray-800/50 to-purple-800/30 p-2 sm:p-3 rounded-lg border border-purple-400/30">
                       {currentImage.prompt}
                     </div>
                     <div className="flex justify-between text-xs text-gray-400 font-mono">
                       <span className="flex items-center gap-1">
-                        <Palette className="w-3 h-3" />
-                        {STYLE_PRESETS.find((s) => s.id === currentImage.style)?.name || "N/A"}
+                        🧠 {currentImage.modelName || "Base Model"}
                       </span>
                       <span className="flex items-center gap-1">
-                        <Shuffle className="w-3 h-3" />
-                        {currentImage.settings.seed}
+                        🎲 {currentImage.settings.seed || "Random"}
                       </span>
                     </div>
                     <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 sm:w-3 sm:h-3">🕐</span>
+                      <span>🕐</span>
                       {formatTimestamp(currentImage.timestamp)}
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={handleEditImage}
-                      className="w-full bg-gradient-to-r from-cyan-900/50 to-blue-900/50 border-2 border-cyan-400/50 text-cyan-300 hover:bg-cyan-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm"
-                    >
-                      <Edit className="w-3 h-3 mr-1.5 sm:mr-2" />
-                      EDIT MASTERPIECE
-                    </Button>
-                    <Button
-                      size="sm"
+                    <button
                       onClick={() => downloadImage(currentImage)}
-                      className="w-full bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 text-green-300 hover:bg-green-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm"
+                      className="w-full bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 text-green-300 hover:bg-green-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg"
                     >
-                      <Download className="w-3 h-3 mr-1.5 sm:mr-2" />
-                      DOWNLOAD MASTERPIECE
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => saveToGallery(currentImage)}
-                      className="w-full bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm"
-                    >
-                      <Heart className="w-3 h-3 mr-1.5 sm:mr-2" />
-                      SAVE TO GALLERY
-                    </Button>
+                      💾 DOWNLOAD MASTERPIECE
+                    </button>
                   </div>
                 </div>
               ) : (
                 <div className="aspect-square bg-gradient-to-br from-gray-800/50 to-purple-800/30 rounded-lg border-2 sm:border-4 border-dashed border-purple-400/50 flex items-center justify-center">
                   <div className="text-center text-gray-500 font-mono p-4">
-                    <Wand2 className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-50 animate-pulse" />
+                    <div className="text-4xl mb-3 opacity-50 animate-pulse">🎨</div>
                     <div className="text-sm sm:text-lg uppercase mb-1 sm:mb-2">Ready to Create</div>
                     <div className="text-xs sm:text-sm">Your next masterpiece awaits...</div>
                   </div>
@@ -865,22 +817,19 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
               )}
             </div>
 
-            <div className="bg-gradient-to-br from-black/60 via-blue-900/20 to-cyan-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/10">
-              <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
-                <History className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400" />
-                CREATION ARCHIVE
-              </h3>
+            {/* Recent Generations */}
+            {generatedImages.length > 0 && (
+              <div className="bg-gradient-to-br from-black/60 via-blue-900/20 to-cyan-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/10">
+                <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
+                  📚 CREATION ARCHIVE
+                </h3>
 
-              <ScrollArea className="h-56 sm:h-64">
-                {generatedImages.length > 0 ? (
+                <div className="max-h-56 sm:max-h-64 overflow-y-auto">
                   <div className="space-y-2 sm:space-y-3">
                     {generatedImages.map((image, index) => (
                       <button
                         key={image.id}
-                        onClick={() => {
-                          setCurrentImage(image)
-                          playSound("click")
-                        }}
+                        onClick={() => setCurrentImage(image)}
                         className="w-full p-2 sm:p-3 bg-gradient-to-r from-gray-800/50 to-cyan-800/30 hover:from-cyan-700/50 hover:to-blue-700/30 border-2 border-gray-600/30 hover:border-cyan-400/50 rounded-lg transition-all text-left group hover:scale-[1.02]"
                       >
                         <div className="flex gap-2 sm:gap-3">
@@ -898,28 +847,20 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
-                              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                              {formatTimestamp(image.timestamp)}
+                              🕐 {formatTimestamp(image.timestamp)}
                             </div>
                             <div className="text-xs sm:text-sm text-white font-mono truncate">{image.prompt}</div>
                             <div className="text-xs text-purple-400 font-mono flex items-center gap-1">
-                              <Palette className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                              {STYLE_PRESETS.find((s) => s.id === image.style)?.name || "N/A"}
+                              🧠 {image.modelName || "Base Model"}
                             </div>
                           </div>
                         </div>
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="text-center text-gray-500 font-mono text-xs sm:text-sm py-8">
-                    <History className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 sm:mb-4 opacity-50" />
-                    <div className="text-sm sm:text-lg mb-1 sm:mb-2">No creations yet</div>
-                    <div>Start your artistic journey!</div>
-                  </div>
-                )}
-              </ScrollArea>
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

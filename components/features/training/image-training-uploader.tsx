@@ -2,19 +2,20 @@
 
 import type React from "react"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Upload, X, ImageIcon, AlertTriangle, Star, Zap } from 'lucide-react'
+import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { useSound } from "@/contexts/sound-context"
 import { ImageModal } from "@/components/image-modal"
 import { useRouter } from "next/navigation"
 import { TrainingDashboard } from "@/components/training-dashboard"
-import { useSoundEffects } from "@/hooks/use-sound-effects"
+import { useAuth } from "@/hooks/use-auth"
 
 interface FileWithPreview extends File {
   id: string
   preview: string
   progress: number
   status: "uploading" | "completed" | "error"
+  uploadedUrl?: string // Add uploaded URL for training
 }
 
 interface UploadedImage {
@@ -22,6 +23,13 @@ interface UploadedImage {
   preview: string
   name: string
 }
+
+const SUBJECT_TYPES = [
+  { id: "person", label: "Person", icon: User, description: "Faces, portraits, people" },
+  { id: "style", label: "Art Style", icon: Palette, description: "Artistic styles, aesthetics" },
+  { id: "object", label: "Object", icon: Camera, description: "Products, items, things" },
+  { id: "concept", label: "Concept", icon: Building, description: "Brands, logos, concepts" },
+]
 
 export default function ImageTrainingUploader() {
   const [files, setFiles] = useState<FileWithPreview[]>([])
@@ -35,10 +43,13 @@ export default function ImageTrainingUploader() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { play, isMuted, initialize } = useSound()
   const router = useRouter()
-  const [images, setImages] = useState<UploadedImage[]>([])
-  const [isDragging, setIsDragging] = useState(false)
-  const [isTraining, setIsTraining] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(true)
+  const { user } = useAuth()
+  
+  // Training form state
+  const [subjectName, setSubjectName] = useState("")
+  const [subjectType, setSubjectType] = useState("person")
+  const [showTrainingForm, setShowTrainingForm] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   
   // Keep track of active upload intervals for cleanup
   const activeIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
@@ -74,21 +85,38 @@ export default function ImageTrainingUploader() {
     // Always allow uploads, but show validation messages
     if (totalFiles < 10) {
       setValidationMessage(`NEED ${10 - totalFiles} MORE IMAGES • MIN: 10 REQUIRED`)
-      // Don't play error sound for individual uploads, just show the message
-      return true // Allow the upload
+      return true
     }
 
     if (totalFiles > 50) {
       setValidationMessage(`TOO MANY FILES! • MAX: 50 ALLOWED • CURRENT: ${totalFiles}`)
       play("error")
-      return false // Block uploads over 50
+      return false
     }
 
     setValidationMessage("")
     return true
   }
 
-  const processFiles = (fileList: FileList) => {
+  const uploadFileToStorage = async (file: File): Promise<string> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('userId', user?.id || 'anonymous')
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Upload failed')
+    }
+
+    const data = await response.json()
+    return data.url
+  }
+
+  const processFiles = async (fileList: FileList) => {
     const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
 
     const newFiles: FileWithPreview[] = Array.from(fileList)
@@ -121,70 +149,83 @@ export default function ImageTrainingUploader() {
       setValidationMessage("")
     }
 
+    // Start uploading files to storage
     newFiles.forEach((file) => {
-      simulateUpload(file.id)
+      simulateUploadAndStore(file.id, file)
     })
   }
 
-  const simulateUpload = (fileId: string) => {
+  const simulateUploadAndStore = async (fileId: string, file: File) => {
     let progressSound = 0
     let currentProgress = 0
     let iterationCount = 0
-    const maxIterations = 20 // Ensure upload completes within reasonable time
+    const maxIterations = 20
     
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       iterationCount++
       
       setFiles((prev) =>
-        prev.map((file) => {
-          if (file.id === fileId) {
-            // Calculate new progress with guaranteed completion
+        prev.map((f) => {
+          if (f.id === fileId) {
             let newProgress: number
             
             if (iterationCount >= maxIterations) {
-              // Force completion after max iterations
               newProgress = 100
             } else if (currentProgress >= 95) {
-              // When near completion, add smaller increments to reach 100
               const remaining = 100 - currentProgress
               newProgress = currentProgress + Math.min(remaining, Math.random() * 5 + 1)
             } else {
-              // Normal progress with larger increments
               newProgress = currentProgress + Math.random() * 8 + 2
             }
             
-            // Ensure we don't exceed 100 and round to avoid floating point issues
             newProgress = Math.min(Math.round(newProgress * 10) / 10, 100)
             currentProgress = newProgress
             
             const status = newProgress >= 100 ? "completed" : "uploading"
 
-            // Play upload sound at certain progress points
             if (Math.floor(newProgress / 25) > Math.floor(progressSound / 25)) {
               play("upload")
               progressSound = newProgress
             }
 
             if (newProgress >= 100) {
-              // Clear the interval and remove from active intervals
               clearInterval(interval)
               activeIntervalsRef.current.delete(fileId)
               
+              // Upload the actual file to storage
+              uploadFileToStorage(file)
+                .then((uploadedUrl) => {
+                  setFiles((prevFiles) =>
+                    prevFiles.map((prevFile) =>
+                      prevFile.id === fileId
+                        ? { ...prevFile, uploadedUrl }
+                        : prevFile
+                    )
+                  )
+                })
+                .catch((error) => {
+                  console.error('File upload failed:', error)
+                  setFiles((prevFiles) =>
+                    prevFiles.map((prevFile) =>
+                      prevFile.id === fileId
+                        ? { ...prevFile, status: "error" as const }
+                        : prevFile
+                    )
+                  )
+                })
+              
               setScore((prevScore) => prevScore + 50)
               play("complete")
-              
-              // Ensure progress is exactly 100
               newProgress = 100
             }
 
-            return { ...file, progress: newProgress, status }
+            return { ...f, progress: newProgress, status }
           }
-          return file
+          return f
         }),
       )
-    }, 150) // Slightly faster interval for better UX
+    }, 150)
     
-    // Store the interval reference for cleanup
     activeIntervalsRef.current.set(fileId, interval)
   }
 
@@ -227,7 +268,6 @@ export default function ImageTrainingUploader() {
   const removeFile = (fileId: string) => {
     play("delete")
     
-    // Clear any active upload interval for this file
     const interval = activeIntervalsRef.current.get(fileId)
     if (interval) {
       clearInterval(interval)
@@ -238,7 +278,6 @@ export default function ImageTrainingUploader() {
       const updatedFiles = prev.filter((file) => file.id !== fileId)
       setScore((prevScore) => Math.max(0, prevScore - 150))
 
-      // Always show validation message if under 10 files
       if (updatedFiles.length < 10) {
         setValidationMessage(`NEED ${10 - updatedFiles.length} MORE IMAGES • MIN: 10 REQUIRED`)
       } else {
@@ -252,7 +291,6 @@ export default function ImageTrainingUploader() {
   const replaceFile = (fileId: string, newFile: File) => {
     play("upload")
     
-    // Clear any existing upload interval for this file
     const existingInterval = activeIntervalsRef.current.get(fileId)
     if (existingInterval) {
       clearInterval(existingInterval)
@@ -262,12 +300,11 @@ export default function ImageTrainingUploader() {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === fileId) {
-          // Clean up old preview URL
           URL.revokeObjectURL(file.preview)
 
           return {
             ...newFile,
-            id: fileId, // Keep the same ID
+            id: fileId,
             preview: URL.createObjectURL(newFile),
             progress: 0,
             status: "uploading" as const,
@@ -277,8 +314,7 @@ export default function ImageTrainingUploader() {
       }),
     )
 
-    // Start upload simulation for replaced file
-    simulateUpload(fileId)
+    simulateUploadAndStore(fileId, newFile)
   }
 
   const openImageModal = (file: FileWithPreview) => {
@@ -298,24 +334,43 @@ export default function ImageTrainingUploader() {
     fileInputRef.current?.click()
   }
 
+  const handleStartTraining = () => {
+    if (completedFiles < 10) {
+      play("error")
+      return
+    }
+    
+    play("click")
+    setShowTrainingForm(true)
+  }
+
   const startTraining = () => {
+    if (!subjectName.trim()) {
+      play("error")
+      return
+    }
+
     play("levelUp")
 
-    // Convert files to training images format
+    // Convert files to training images format and get uploaded URLs
     const completedImages = files
-      .filter((f) => f.status === "completed")
+      .filter((f) => f.status === "completed" && f.uploadedUrl)
       .map((f) => ({
         id: f.id,
         preview: f.preview,
         name: f.name,
       }))
 
-    // Show training dashboard directly
+    const imageUrls = files
+      .filter((f) => f.status === "completed" && f.uploadedUrl)
+      .map((f) => f.uploadedUrl!)
+
     setIsTrainingOpen(true)
   }
 
   const completedFiles = files.filter((f) => f.status === "completed").length
   const uploadingFiles = files.filter((f) => f.status === "uploading").length
+  const errorFiles = files.filter((f) => f.status === "error").length
   const level = Math.floor(completedFiles / 5) + 1
 
   // Check for level up
@@ -335,12 +390,137 @@ export default function ImageTrainingUploader() {
         preview: f.preview,
         name: f.name,
       }))
+
+    const imageUrls = files
+      .filter((f) => f.status === "completed" && f.uploadedUrl)
+      .map((f) => f.uploadedUrl!)
+
     return (
       <TrainingDashboard 
-        onClose={() => setIsTrainingOpen(false)} 
+        onClose={() => {
+          setIsTrainingOpen(false)
+          setShowTrainingForm(false)
+        }} 
         trainingImages={trainingImages} 
-        playSound={(sound: string) => play(sound as any)} 
+        playSound={(sound: string) => play(sound as any)}
+        subjectName={subjectName}
+        subjectType={subjectType}
+        imageUrls={imageUrls}
       />
+    )
+  }
+
+  // Show training form if requested
+  if (showTrainingForm) {
+    return (
+      <div className="w-full min-h-screen bg-black p-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-gray-900 p-6 rounded-lg border-4 border-gray-700 shadow-2xl">
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400 uppercase tracking-wider">
+                ⚡ TRAINING SETUP ⚡
+              </h2>
+              <p className="text-gray-400 font-mono text-sm mt-2">
+                Configure your AI model training parameters
+              </p>
+            </div>
+
+            <div className="space-y-6">
+              {/* Subject Name */}
+              <div>
+                <label className="block text-cyan-400 font-mono text-sm font-bold mb-2 uppercase tracking-wide">
+                  Subject Name
+                </label>
+                <input
+                  type="text"
+                  value={subjectName}
+                  onChange={(e) => setSubjectName(e.target.value)}
+                  placeholder="e.g., 'My Dog', 'Company Logo', 'Portrait Style'"
+                  className="w-full px-4 py-3 bg-black border-2 border-gray-600 rounded-lg text-white font-mono focus:border-cyan-400 focus:outline-none"
+                  maxLength={50}
+                />
+                <p className="text-gray-500 text-xs mt-1 font-mono">
+                  This will be the name of your custom AI model
+                </p>
+              </div>
+
+              {/* Subject Type */}
+              <div>
+                <label className="block text-cyan-400 font-mono text-sm font-bold mb-3 uppercase tracking-wide">
+                  Subject Type
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {SUBJECT_TYPES.map((type) => {
+                    const Icon = type.icon
+                    return (
+                      <button
+                        key={type.id}
+                        onClick={() => {
+                          setSubjectType(type.id)
+                          play("click")
+                        }}
+                        className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+                          subjectType === type.id
+                            ? "border-purple-400 bg-purple-900/30 text-purple-300"
+                            : "border-gray-600 bg-gray-800 text-gray-300 hover:border-gray-500"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <Icon className="w-5 h-5" />
+                          <span className="font-mono font-bold text-sm uppercase tracking-wide">
+                            {type.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 font-mono">
+                          {type.description}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* File Summary */}
+              <div className="bg-black border-2 border-gray-600 rounded-lg p-4">
+                <h3 className="text-yellow-400 font-mono text-sm font-bold mb-2 uppercase tracking-wide">
+                  Training Data Summary
+                </h3>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div>
+                    <div className="text-green-400 font-mono text-xl font-bold">{completedFiles}</div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">Ready</div>
+                  </div>
+                  <div>
+                    <div className="text-red-400 font-mono text-xl font-bold">{errorFiles}</div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">Failed</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Button
+                  onClick={() => {
+                    play("click")
+                    setShowTrainingForm(false)
+                  }}
+                  variant="outline"
+                  className="bg-gray-800 border-2 border-gray-600 text-gray-300 hover:bg-gray-700 font-mono uppercase tracking-wide"
+                >
+                  ← Back to Upload
+                </Button>
+                <Button
+                  onClick={startTraining}
+                  disabled={!subjectName.trim() || completedFiles < 10}
+                  className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white font-bold font-mono uppercase tracking-wider px-8 py-3 text-lg border-2 border-purple-400 shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+                >
+                  🚀 Start Training
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -490,7 +670,6 @@ export default function ImageTrainingUploader() {
                 size="sm"
                 onClick={() => {
                   play("click")
-                  // Clear all active intervals
                   activeIntervalsRef.current.forEach((interval) => {
                     clearInterval(interval)
                   })
@@ -525,7 +704,7 @@ export default function ImageTrainingUploader() {
                       className="w-full h-full object-cover"
                     />
 
-                    {/* Status Icons - Hide on hover */}
+                    {/* Status Icons */}
                     {file.status === "completed" && (
                       <div className="absolute top-1 right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded flex items-center justify-center group-hover:opacity-0 transition-opacity duration-200">
                         <Star className="w-2 h-2 sm:w-3 sm:h-3 text-white" />
@@ -538,14 +717,20 @@ export default function ImageTrainingUploader() {
                       </div>
                     )}
 
-                    {/* Click to View Overlay with Delete Button */}
+                    {file.status === "error" && (
+                      <div className="absolute top-1 right-1 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 rounded flex items-center justify-center group-hover:opacity-0 transition-opacity duration-200">
+                        <AlertTriangle className="w-2 h-2 sm:w-3 sm:h-3 text-white" />
+                      </div>
+                    )}
+
+                    {/* Click to View Overlay */}
                     <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
                       <div className="text-white font-mono text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black bg-opacity-75 px-2 py-1 rounded">
                         VIEW
                       </div>
                     </div>
 
-                    {/* Enhanced Delete Button - Always visible on hover */}
+                    {/* Delete Button */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -558,7 +743,7 @@ export default function ImageTrainingUploader() {
                     </button>
                   </div>
 
-                  {/* Progress Bar - Health Bar Style */}
+                  {/* Progress Bar */}
                   {file.status === "uploading" && (
                     <div className="p-1 sm:p-2 bg-black">
                       <div className="w-full bg-gray-700 h-1 sm:h-2 rounded-full overflow-hidden">
@@ -593,7 +778,7 @@ export default function ImageTrainingUploader() {
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
             <Button
               size="lg"
-              onClick={startTraining}
+              onClick={handleStartTraining}
               className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-black font-bold font-mono uppercase tracking-wider px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg border-2 border-green-400 shadow-lg shadow-green-500/25"
             >
               ⚡ START TRAINING
@@ -644,6 +829,18 @@ export default function ImageTrainingUploader() {
                 <div className="text-gray-500 text-sm">COMPLETED</div>
               </div>
               <div className="text-xs text-yellow-300 uppercase animate-pulse">WAIT FOR ALL UPLOADS TO COMPLETE</div>
+            </div>
+          </div>
+        )}
+
+        {/* Error files warning */}
+        {errorFiles > 0 && (
+          <div className="mt-4 bg-red-900/40 border-2 border-red-400/50 rounded-lg p-4">
+            <div className="text-red-400 font-mono text-sm text-center">
+              ⚠️ {errorFiles} FILE{errorFiles > 1 ? 'S' : ''} FAILED TO UPLOAD
+            </div>
+            <div className="text-red-300 font-mono text-xs text-center mt-1">
+              Please remove failed files and try uploading them again
             </div>
           </div>
         )}

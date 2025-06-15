@@ -1,3 +1,4 @@
+// lib/api-client.ts
 import axios from 'axios';
 
 const api = axios.create({
@@ -31,7 +32,35 @@ export const checkTrainingStatus = async (jobId: string) => {
   return data;
 };
 
+// Updated generateImage function for AI Image Generator component
 export const generateImage = async (params: {
+  prompt: string;
+  modelId?: string; // Maps to datasetId in your backend
+  userId: string;
+  steps?: number;
+  guidance?: number;
+  seed?: number;
+  width?: number;
+  height?: number;
+}) => {
+  // Map modelId to datasetId for your existing backend
+  const requestData = {
+    prompt: params.prompt,
+    datasetId: params.modelId, // Your backend expects datasetId
+    userId: params.userId,
+    steps: params.steps,
+    guidance: params.guidance,
+    seed: params.seed,
+    width: params.width,
+    height: params.height,
+  };
+
+  const { data } = await api.post('/api/generate', requestData);
+  return data;
+};
+
+// Keep your existing advanced generateImage function with a different name
+export const generateAdvancedImage = async (params: {
   prompt: string;
   datasetId?: string;
   userId: string;
@@ -68,6 +97,14 @@ export const inpaintImage = async (
 export const extractPose = async (imageUrl: string) => {
   const { data } = await api.get('/api/inpaint', {
     params: { imageUrl }
+  });
+  return data;
+};
+
+// Add function to fetch user's trained models
+export const fetchUserModels = async (userId: string) => {
+  const { data } = await api.get('/api/models', {
+    params: { userId }
   });
   return data;
 };
