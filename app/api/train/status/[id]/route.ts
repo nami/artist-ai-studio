@@ -1,132 +1,228 @@
-import { NextRequest, NextResponse } from "next/server";
-import Replicate from "replicate";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+// /api/train/route.ts - Optimized for Vercel hobby plan
+import { NextRequest, NextResponse } from 'next/server'
+import JSZip from 'jszip'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN!,
-});
+// Remove or set to 60 max for hobby plan
+export const maxDuration = 60
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-
-    console.log(`🔍 Checking status for training: ${id}`);
-
-    // Get training status from Replicate
-    const training = await replicate.trainings.get(id);
-
-    console.log(`📊 Replicate status: ${training.status}`);
-    console.log(`📊 Training details:`, {
-      id: training.id,
-      status: training.status,
-      started_at: training.started_at,
-      completed_at: training.completed_at,
-      error: training.error,
-      output: training.output ? 'has output' : 'no output'
-    });
-
-    // Log error if training failed
-    if (training.error) {
-      console.log("Replicate failure log:", training.error);
-    }
-
-    // Get dataset from database
-    const { data: dataset, error: fetchError } = await supabaseAdmin
-      .from("datasets")
-      .select("*")
-      .eq("training_id", id)
-      .single();
-
-    if (fetchError) {
-      console.log("⚠️ Could not find dataset for training ID:", id);
-      // Still return the status even if we can't find the dataset
-      return NextResponse.json({
-        status: training.status,
-        error: training.error ?? null,
-        replicate_status: training.status,
-        message: "Training status retrieved, but dataset not found in database"
-      });
-    }
-
-    // Determine the training status and update database accordingly
-    let finalStatus = "processing";
-    let updateData: any = {
-      training_status: "processing"
-    };
-
-    if (training.status === "succeeded") {
-      finalStatus = "completed";
-      updateData = {
-        training_status: "completed",
-        completed_at: new Date().toISOString()
-      };
-      
-      console.log(`✅ Training completed successfully! Model: ${dataset.model_version}`);
-      
-    } else if (training.status === "failed" || training.status === "canceled") {
-      finalStatus = "failed";
-      updateData = {
-        training_status: "failed",
-        error_message: training.error || "Training failed"
-      };
-      
-      console.log(`❌ Training failed with status: ${training.status}`);
-      
-    } else if (training.status === "processing" || training.status === "starting") {
-      finalStatus = "processing";
-      updateData = {
-        training_status: "processing"
-      };
-      
-      console.log(`⏳ Training still in progress: ${training.status}`);
-    }
-
-    // Update the dataset status in database
-    const { error: updateError } = await supabaseAdmin
-      .from("datasets")
-      .update(updateData)
-      .eq("training_id", id);
-
-    if (updateError) {
-      console.error("Failed to update dataset status:", updateError);
-    } else {
-      console.log(`📝 Updated dataset status to: ${finalStatus}`);
-    }
-
-    // Return comprehensive status
-    return NextResponse.json({
-      status: finalStatus,
-      replicate_status: training.status,
-      error: training.error ?? null,
-      dataset_id: dataset.id,
-      model_version: dataset.model_version,
-      trigger_word: dataset.trigger_word,
-      started_at: training.started_at,
-      completed_at: training.completed_at,
-      message: finalStatus === "completed" 
-        ? `Training completed! Model ready at: ${dataset.model_version}`
-        : finalStatus === "failed"
-        ? `Training failed: ${training.error || "Unknown error"}`
-        : "Training is still in progress..."
-    });
-
-  } catch (err) {
-    console.error("Replicate status error:", err);
-    
-    const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    
-    return NextResponse.json(
-      { 
-        error: "Failed to fetch training status",
-        details: errorMessage
-      },
-      { status: 500 }
-    );
+// Helper function to safely get error message
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
   }
+  if (typeof error === 'string') {
+    return error
+  }
+  return 'Unknown error'
 }
 
-export const runtime = "nodejs";
-export const maxDuration = 30;
+export async function POST(request: NextRequest) {
+  try {
+    const { imageUrls, subjectName, subjectType, userId } = await request.json()
+    
+    // Validate inputs quickly
+    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length !== 10) {
+      return NextResponse.json(
+        { error: 'Exactly 10 image URLs required' },
+        { status: 400 }
+      )
+    }
+
+    if (!subjectName || !subjectType || !userId) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+
+    console.log(`🎯 Starting training for ${subjectName} with ${imageUrls.length} images`)
+
+    // 1. Create database record first (quick operation)
+    const { data: dataset, error: dbError } = await supabaseAdmin
+      .from('training_datasets')
+      .insert({
+        user_id: userId,
+        name: subjectName,
+        subject_type: subjectType,
+        image_count: imageUrls.length,
+        status: 'preparing',
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (dbError || !dataset) {
+      console.error('Database error:', dbError)
+      return NextResponse.json(
+        { error: 'Failed to create training record' },
+        { status: 500 }
+      )
+    }
+
+    console.log(`✅ Created dataset record: ${dataset.id}`)
+
+    // 2. Create ZIP (time-limited operation)
+    console.log('📦 Creating ZIP file from images...')
+    const zip = new JSZip()
+    
+    // Process images with timeout protection
+    const imagePromises = imageUrls.slice(0, 10).map(async (imageUrl, index) => {
+      try {
+        console.log(`📥 Processing image ${index + 1}/10`)
+        
+        // Add timeout to individual fetch operations
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout per image
+        
+        const response = await fetch(imageUrl, { 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'AI-Training-Bot/1.0'
+          }
+        })
+        
+        clearTimeout(timeoutId)
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        
+        const imageBuffer = await response.arrayBuffer()
+        const filename = `image_${String(index + 1).padStart(3, '0')}.jpg`
+        zip.file(filename, imageBuffer)
+        
+        return { success: true, index }
+      } catch (error) {
+        console.warn(`⚠️ Failed to process image ${index + 1}:`, error)
+        return { success: false, index, error: getErrorMessage(error) }
+      }
+    })
+
+    // Wait for all images with overall timeout
+    const results = await Promise.allSettled(imagePromises)
+    const successfulImages = results.filter(r => r.status === 'fulfilled' && r.value.success).length
+    
+    if (successfulImages < 8) {
+      throw new Error(`Only ${successfulImages}/10 images processed successfully. Need at least 8.`)
+    }
+
+    console.log(`✅ Successfully processed ${successfulImages}/10 images`)
+
+    // 3. Generate ZIP buffer (quick operation)
+    console.log('🔄 Generating ZIP buffer...')
+    const zipBuffer = await zip.generateAsync({ 
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    })
+    
+    const zipSizeMB = zipBuffer.length / (1024 * 1024)
+    console.log(`✅ ZIP created: ${zipBuffer.length} bytes (${zipSizeMB.toFixed(2)}MB)`)
+
+    // 4. Upload ZIP to Replicate (quick operation)
+    console.log('📤 Uploading ZIP to Replicate...')
+    const formData = new FormData()
+    formData.append('content', new Blob([zipBuffer]), 'training_images.zip')
+    
+    const uploadResponse = await fetch('https://api.replicate.com/v1/files', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+      },
+      body: formData,
+    })
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadData = await uploadResponse.json()
+    const zipUrl = uploadData.download_url || uploadData.url
+    console.log(`✅ ZIP uploaded: ${zipUrl}`)
+
+    // 5. Start training (quick trigger - doesn't wait for completion)
+    console.log('🚀 Starting training...')
+    const modelName = `${userId.substring(0, 8)}/flux-${subjectName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`
+    
+    const trainingResponse = await fetch('https://api.replicate.com/v1/models', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        owner: userId.substring(0, 8),
+        name: modelName.split('/')[1],
+        description: `Custom AI model for ${subjectName}`,
+        visibility: 'private'
+      }),
+    })
+
+    if (!trainingResponse.ok) {
+      const errorText = await trainingResponse.text()
+      throw new Error(`Model creation failed: ${trainingResponse.status} - ${errorText}`)
+    }
+
+    const modelData = await trainingResponse.json()
+    
+    // Start actual training
+    const trainResponse = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        version: 'replicate/fast-flux-trainer:latest',
+        input: {
+          input_images: zipUrl,
+          trigger_word: 'TOK',
+          lora_type: subjectType,
+          steps: 1000
+        },
+        webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/train/webhook`,
+        webhook_events_filter: ["completed"]
+      }),
+    })
+
+    if (!trainResponse.ok) {
+      throw new Error(`Training start failed: ${trainResponse.status}`)
+    }
+
+    const trainData = await trainResponse.json()
+    console.log(`✅ Training started: ${trainData.id}`)
+
+    // 6. Update database with training ID (quick operation)
+    await supabaseAdmin
+      .from('training_datasets')
+      .update({
+        replicate_id: trainData.id,
+        model_name: modelName,
+        status: 'training',
+        zip_url: zipUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', dataset.id)
+
+    // 7. Return immediately (don't wait for training to complete)
+    return NextResponse.json({
+      success: true,
+      trainingId: trainData.id,
+      datasetId: dataset.id,
+      message: `Training started for "${subjectName}"`,
+      estimatedTime: '20-40 minutes',
+      modelName,
+      zipSizeMB: zipSizeMB.toFixed(2)
+    })
+
+  } catch (error) {
+    console.error('💥 Training start error:', error)
+    
+    return NextResponse.json({
+      error: 'Failed to start training',
+      details: getErrorMessage(error),
+      suggestion: 'Check image URLs and try again'
+    }, { status: 500 })
+  }
+}

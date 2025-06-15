@@ -272,35 +272,6 @@ export default function TrainingDashboardPage() {
   }, [dataset?.id])
 
   /* ———————————————————————————————————————————
-     Extra poll for local dev (no HTTPS webhook)
-  ——————————————————————————————————————————— */
-  useEffect(() => {
-    if (!trainingId) return
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || ""
-    if (appUrl.startsWith("https://")) return // prod uses webhook
-
-    const poll = setInterval(async () => {
-      try {
-        const data = await checkTrainingStatus(trainingId)
-        if (data.status === "succeeded") {
-          setRealTrainingStatus("completed")
-          clearInterval(poll)
-        } else if (
-          data.status === "failed" ||
-          data.status === "canceled"
-        ) {
-          setRealTrainingStatus("failed")
-          clearInterval(poll)
-        }
-      } catch (err) {
-        console.error("Local replicate-status poll error:", err)
-      }
-    }, 10000) // 10 s
-
-    return () => clearInterval(poll)
-  }, [trainingId])
-
-  /* ———————————————————————————————————————————
      Elapsed-time counter
   ——————————————————————————————————————————— */
   useEffect(() => {
@@ -538,7 +509,7 @@ export default function TrainingDashboardPage() {
                   <Zap className="w-5 h-5 text-yellow-400" />
                   TRAINING DATA
                 </h3>
-                <div className="grid grid-cols-3 gap-2 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                <div className="grid grid-cols-3 gap-2 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600/50 scrollbar-track-gray-800/30 hover:scrollbar-thumb-gray-500/50">
                   {trainingImages.map((image, index) => (
                     <div
                       key={image.id}
@@ -589,16 +560,6 @@ export default function TrainingDashboardPage() {
                     size="lg"
                   >
                     🎨 GENERATE IMAGES
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      playSound("click")
-                      router.push(`/training/${trainingId}`)
-                    }}
-                    className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
-                    size="lg"
-                  >
-                    📸 VIEW TRAINING DATA
                   </Button>
                 </div>
               </div>

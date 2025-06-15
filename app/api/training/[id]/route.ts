@@ -53,10 +53,127 @@ export async function GET(
       imageCount: imageUrls.length
     });
 
+    // 🆕 ADD TRAINING STATUS CHECK
+    let trainingStatus = {
+      status: datasetData.status || 'unknown',
+      progress: 0,
+      model_url: datasetData.model_url || null,
+      error: datasetData.error_message || null,
+      started_at: datasetData.created_at,
+      completed_at: datasetData.completed_at
+    };
+
+    // Calculate progress based on status
+    switch (trainingStatus.status) {
+      case 'starting':
+        trainingStatus.progress = 10;
+        break;
+      case 'processing':
+      case 'training':
+        trainingStatus.progress = 50;
+        break;
+      case 'completed':
+        trainingStatus.progress = 100;
+        break;
+      case 'failed':
+        trainingStatus.progress = 0;
+        break;
+      default:
+        trainingStatus.progress = 25;
+    }
+
+    // 🆕 CHECK LIVE STATUS FROM REPLICATE (if still training)
+    if (trainingStatus.status !== 'completed' && trainingStatus.status !== 'failed' && process.env.REPLICATE_API_TOKEN) {
+      try {
+        console.log('🌐 Checking live status from Replicate...');
+        const replicateResponse = await fetch(
+          `https://api.replicate.com/v1/predictions/${id}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+            },
+          }
+        );
+
+        if (replicateResponse.ok) {
+          const replicateData = await replicateResponse.json();
+          console.log(`📊 Replicate status: ${replicateData.status}`);
+
+          // Update status if different
+          if (replicateData.status !== trainingStatus.status) {
+            console.log(`🔄 Updating status: ${trainingStatus.status} → ${replicateData.status}`);
+            
+            const updates: any = {
+              status: replicateData.status,
+              updated_at: new Date().toISOString()
+            };
+
+            if (replicateData.status === 'completed') {
+              updates.model_url = replicateData.output;
+              updates.completed_at = new Date().toISOString();
+            }
+
+            if (replicateData.status === 'failed') {
+              updates.error_message = replicateData.error || 'Training failed';
+            }
+
+            // Update database
+            await supabaseAdmin
+              .from('datasets')
+              .update(updates)
+              .eq('training_id', id);
+
+            // Update our response
+            trainingStatus.status = replicateData.status;
+            trainingStatus.model_url = replicateData.output;
+            trainingStatus.error = replicateData.error;
+            trainingStatus.completed_at = replicateData.completed_at;
+
+            // Recalculate progress
+            switch (replicateData.status) {
+              case 'starting':
+                trainingStatus.progress = 10;
+                break;
+              case 'processing':
+                trainingStatus.progress = 50;
+                break;
+              case 'completed':
+                trainingStatus.progress = 100;
+                break;
+              case 'failed':
+                trainingStatus.progress = 0;
+                break;
+              default:
+                trainingStatus.progress = 25;
+            }
+          }
+        }
+      } catch (replicateError) {
+        console.warn('⚠️ Could not fetch live status from Replicate:', replicateError);
+        // Continue with DB status
+      }
+    }
+
+    // 🆕 RETURN BOTH TRAINING DATA AND STATUS
     return NextResponse.json({
+      // Original data (for backward compatibility)
       dataset: datasetData,
       trainingImages,
-      imageUrls
+      imageUrls,
+      
+      // 🆕 New training status fields (for polling)
+      id: id,
+      status: trainingStatus.status,
+      progress: trainingStatus.progress,
+      model_url: trainingStatus.model_url,
+      error: trainingStatus.error,
+      logs: null, // Add if you track logs
+      started_at: trainingStatus.started_at,
+      completed_at: trainingStatus.completed_at,
+      
+      // Additional useful fields
+      subjectName: datasetData.subject_name,
+      imageCount: imageUrls.length
     });
 
   } catch (err) {

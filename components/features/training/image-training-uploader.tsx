@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building, Loader2 } from 'lucide-react'
+import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building, Loader2, FileWarning } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { useSound } from "@/contexts/sound-context"
 import { ImageModal } from "@/components/image-modal"
@@ -18,6 +18,7 @@ interface FileWithPreview extends File {
   progress: number
   status: "uploading" | "completed" | "error"
   uploadedUrl?: string
+  sizeWarning?: boolean
 }
 
 interface UploadedImage {
@@ -33,19 +34,24 @@ const SUBJECT_TYPES = [
   { id: "concept", label: "Concept", icon: Building, description: "Brands, logos, concepts" },
 ]
 
+// Size limits to prevent network timeouts
+const MAX_FILE_SIZE_MB = 2 // 2MB per file
+const MAX_TOTAL_SIZE_MB = 8 // 8MB total to stay under 10MB ZIP
+const MAX_FILES = 10 // Exactly 10 files required and maximum
+
 export default function ImageTrainingUploader() {
   const [files, setFiles] = useState<FileWithPreview[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string>("")
+  const [sizeWarning, setSizeWarning] = useState<string>("")
   const [score, setScore] = useState(0)
   const [previousLevel, setPreviousLevel] = useState(1)
   const [selectedFile, setSelectedFile] = useState<FileWithPreview | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isTrainingOpen, setIsTrainingOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isStartingTraining, setIsStartingTraining] = useState(false)
-  const { play, isMuted, initialize } = useSound()
+  const { play, initialize } = useSound()
   const router = useRouter()
   const { user } = useAuth()
   const { toast } = useToast()
@@ -83,59 +89,93 @@ export default function ImageTrainingUploader() {
     }
   }, [])
 
+  // Check file sizes and update warnings
+  const checkFileSizes = (allFiles: FileWithPreview[]) => {
+    const totalSizeBytes = allFiles.reduce((sum, file) => sum + file.size, 0)
+    const totalSizeMB = totalSizeBytes / (1024 * 1024)
+    
+    const largeFiles = allFiles.filter(file => (file.size / (1024 * 1024)) > MAX_FILE_SIZE_MB)
+    
+    if (largeFiles.length > 0) {
+      setSizeWarning(`⚠️ ${largeFiles.length} FILES OVER ${MAX_FILE_SIZE_MB}MB • TRAINING MAY TIMEOUT`)
+    } else if (totalSizeMB > MAX_TOTAL_SIZE_MB) {
+      setSizeWarning(`⚠️ TOTAL SIZE ${totalSizeMB.toFixed(1)}MB • RECOMMEND UNDER ${MAX_TOTAL_SIZE_MB}MB`)
+    } else {
+      setSizeWarning("")
+    }
+  }
+
   const validateFiles = (newFiles: FileWithPreview[]) => {
     const totalFiles = files.length + newFiles.length
 
-    // Always allow uploads, but show validation messages
-    if (totalFiles < 10) {
-      setValidationMessage(`NEED ${10 - totalFiles} MORE IMAGES • MIN: 10 REQUIRED`)
+    // Exactly 10 files required
+    if (totalFiles < MAX_FILES) {
+      setValidationMessage(`NEED ${MAX_FILES - totalFiles} MORE IMAGES • EXACTLY ${MAX_FILES} REQUIRED`)
       return true
     }
 
-    if (totalFiles > 50) {
-      setValidationMessage(`TOO MANY FILES! • MAX: 50 ALLOWED • CURRENT: ${totalFiles}`)
+    if (totalFiles > MAX_FILES) {
+      setValidationMessage(`TOO MANY FILES! • EXACTLY ${MAX_FILES} REQUIRED • WOULD BE: ${totalFiles}`)
       play("error")
       return false
     }
 
-    setValidationMessage("")
+    // Perfect amount
+    if (totalFiles === MAX_FILES) {
+      setValidationMessage("")
+      return true
+    }
+
     return true
   }
 
   const processFiles = async (fileList: FileList) => {
     const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
 
+    // Check if adding these files would exceed the limit
+    if (files.length + fileList.length > MAX_FILES) {
+      const slotsAvailable = MAX_FILES - files.length
+      setValidationMessage(`ONLY ${slotsAvailable} SLOT${slotsAvailable !== 1 ? 'S' : ''} REMAINING • EXACTLY ${MAX_FILES} IMAGES REQUIRED`)
+      play("error")
+      toast({
+        title: 'Too Many Files',
+        description: `You can only upload ${slotsAvailable} more image${slotsAvailable !== 1 ? 's' : ''}. Maximum is ${MAX_FILES} images total.`,
+        variant: 'destructive',
+      })
+      return
+    }
+
     const newFiles: FileWithPreview[] = Array.from(fileList)
       .filter((file) => validImageTypes.includes(file.type))
+      .slice(0, MAX_FILES - files.length) // Only take what we can fit
       .map((file) => {
+        const fileSizeMB = file.size / (1024 * 1024)
+        const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB
+        
         // ✅ mutate original File object so it stays an actual File
         return Object.assign(file, {
           id: nanoid(),
           preview: URL.createObjectURL(file),
           progress: 0,
           status: 'uploading' as const,
+          sizeWarning
         }) as FileWithPreview
       })
 
-    // Check if we would exceed the maximum
-    if (files.length + newFiles.length > 50) {
-      setValidationMessage(`TOO MANY FILES! • MAX: 50 ALLOWED • WOULD BE: ${files.length + newFiles.length}`)
+    if (newFiles.length === 0) {
       play("error")
       return
     }
 
     // Add the files
-    setFiles((prev) => [...prev, ...newFiles])
+    const updatedFiles = [...files, ...newFiles]
+    setFiles(updatedFiles)
     setScore((prev) => prev + newFiles.length * 100)
     play("drop")
 
-    // Update validation message after adding files
-    const totalAfterUpload = files.length + newFiles.length
-    if (totalAfterUpload < 10) {
-      setValidationMessage(`NEED ${10 - totalAfterUpload} MORE IMAGES • MIN: 10 REQUIRED`)
-    } else {
-      setValidationMessage("")
-    }
+    // Update validation messages
+    validateFiles(newFiles)
+    checkFileSizes(updatedFiles)
 
     // Actually upload the files
     uploadFilesToStorage(newFiles)
@@ -148,18 +188,24 @@ export default function ImageTrainingUploader() {
       const uploadedUrls = await uploadImages(actualFiles)
       
       // Update files with uploaded URLs and mark as completed
-      setFiles(prev => prev.map(file => {
-        const index = filesToUpload.findIndex(f => f.id === file.id)
-        if (index !== -1) {
-          return {
-            ...file,
-            status: "completed" as const,
-            progress: 100,
-            uploadedUrl: uploadedUrls[index]
+      setFiles(prev => {
+        const updated = prev.map(file => {
+          const index = filesToUpload.findIndex(f => f.id === file.id)
+          if (index !== -1) {
+            return {
+              ...file,
+              status: "completed" as const,
+              progress: 100,
+              uploadedUrl: uploadedUrls[index]
+            }
           }
-        }
-        return file
-      }))
+          return file
+        })
+        
+        // Recheck sizes after upload complete
+        checkFileSizes(updated)
+        return updated
+      })
 
       // Play completion sounds
       filesToUpload.forEach(() => {
@@ -230,12 +276,15 @@ export default function ImageTrainingUploader() {
       const updatedFiles = prev.filter((file) => file.id !== fileId)
       setScore((prevScore) => Math.max(0, prevScore - 150))
 
-      // Always show validation message if under 10 files
-      if (updatedFiles.length < 10) {
-        setValidationMessage(`NEED ${10 - updatedFiles.length} MORE IMAGES • MIN: 10 REQUIRED`)
+      // Update validation messages
+      if (updatedFiles.length < MAX_FILES) {
+        setValidationMessage(`NEED ${MAX_FILES - updatedFiles.length} MORE IMAGES • EXACTLY ${MAX_FILES} REQUIRED`)
       } else {
         setValidationMessage("")
       }
+
+      // Recheck sizes
+      checkFileSizes(updatedFiles)
 
       return updatedFiles
     })
@@ -250,9 +299,16 @@ export default function ImageTrainingUploader() {
           // Clean up old preview URL
           URL.revokeObjectURL(file.preview)
 
-          const newFileWithPreview = {} as FileWithPreview
+          const fileSizeMB = newFile.size / (1024 * 1024)
+          const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB
 
-          Object.assign(newFileWithPreview, newFile)
+          const newFileWithPreview = Object.assign(newFile, {
+            id: nanoid(),
+            preview: URL.createObjectURL(newFile),
+            progress: 0,
+            status: 'uploading' as const,
+            sizeWarning
+          }) as FileWithPreview
 
           // Upload the new file
           uploadFilesToStorage([newFileWithPreview])
@@ -277,12 +333,22 @@ export default function ImageTrainingUploader() {
   }
 
   const openFileDialog = () => {
+    if (files.length >= MAX_FILES) {
+      play("error")
+      toast({
+        title: 'Upload Full',
+        description: `You already have ${MAX_FILES} images. Remove some first.`,
+        variant: 'destructive',
+      })
+      return
+    }
+    
     play("click")
     fileInputRef.current?.click()
   }
 
   const handleStartTraining = () => {
-    if (completedFiles < 10) {
+    if (completedFiles < MAX_FILES) {
       play("error")
       return
     }
@@ -305,6 +371,15 @@ export default function ImageTrainingUploader() {
       })
       return
     }
+
+    if (completedFiles !== MAX_FILES) {
+      toast({
+        title: 'Incomplete Upload',
+        description: `You need exactly ${MAX_FILES} completed uploads to start training.`,
+        variant: 'destructive',
+      })
+      return
+    }
   
     setIsStartingTraining(true)
     play("levelUp")
@@ -315,8 +390,8 @@ export default function ImageTrainingUploader() {
         .filter((f) => f.status === "completed" && f.uploadedUrl)
         .map((f) => f.uploadedUrl!)
   
-      if (imageUrls.length < 10) {
-        throw new Error('Need at least 10 completed uploads')
+      if (imageUrls.length !== MAX_FILES) {
+        throw new Error(`Need exactly ${MAX_FILES} completed uploads`)
       }
   
       console.log('🚀 Starting training with:', {
@@ -376,7 +451,7 @@ export default function ImageTrainingUploader() {
   const completedFiles = files.filter((f) => f.status === "completed").length
   const uploadingFiles = files.filter((f) => f.status === "uploading").length
   const errorFiles = files.filter((f) => f.status === "error").length
-  const level = Math.floor(completedFiles / 5) + 1
+  const level = Math.floor(completedFiles / 2) + 1
 
   // Check for level up
   useEffect(() => {
@@ -385,6 +460,10 @@ export default function ImageTrainingUploader() {
       setPreviousLevel(level)
     }
   }, [level, previousLevel, play])
+
+  // Calculate total size for display
+  const totalSizeBytes = files.reduce((sum, file) => sum + file.size, 0)
+  const totalSizeMB = totalSizeBytes / (1024 * 1024)
 
   // Show training form if requested
   if (showTrainingForm) {
@@ -461,10 +540,14 @@ export default function ImageTrainingUploader() {
                 <h3 className="text-yellow-400 font-mono text-sm font-bold mb-2 uppercase tracking-wide">
                   Training Data Summary
                 </h3>
-                <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
                     <div className="text-green-400 font-mono text-xl font-bold">{completedFiles}</div>
                     <div className="text-gray-400 font-mono text-xs uppercase">Ready</div>
+                  </div>
+                  <div>
+                    <div className="text-cyan-400 font-mono text-xl font-bold">{totalSizeMB.toFixed(1)}MB</div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">Total Size</div>
                   </div>
                   <div>
                     <div className="text-red-400 font-mono text-xl font-bold">{errorFiles}</div>
@@ -472,6 +555,20 @@ export default function ImageTrainingUploader() {
                   </div>
                 </div>
               </div>
+
+              {/* Size Warning */}
+              {sizeWarning && (
+                <div className="bg-yellow-900/40 border-2 border-yellow-400/50 rounded-lg p-4">
+                  <div className="text-yellow-400 font-mono text-sm font-bold mb-2 flex items-center gap-2">
+                    <FileWarning className="w-4 h-4" />
+                    SIZE WARNING
+                  </div>
+                  <div className="text-yellow-300 font-mono text-xs">{sizeWarning}</div>
+                  <div className="text-yellow-200 font-mono text-xs mt-1">
+                    Large files may cause training to timeout. Consider resizing images.
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-4">
@@ -487,7 +584,7 @@ export default function ImageTrainingUploader() {
                 </Button>
                 <Button
                   onClick={startTraining}
-                  disabled={!subjectName.trim() || completedFiles < 10 || isStartingTraining}
+                  disabled={!subjectName.trim() || completedFiles !== MAX_FILES || isStartingTraining}
                   className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white font-bold font-mono uppercase tracking-wider px-8 py-3 text-lg border-2 border-purple-400 shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex-1"
                 >
                   {isStartingTraining ? (
@@ -527,14 +624,14 @@ export default function ImageTrainingUploader() {
           <div className="bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400 p-1 rounded-lg inline-block">
             <div className="bg-black px-4 sm:px-6 py-2 sm:py-3 rounded-md">
               <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold font-mono tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 uppercase">
-                ★ RETRO GALLERY ★
+                ★ NEURAL TRAINING ★
               </h1>
             </div>
           </div>
           <div className="flex justify-center items-center gap-4 text-green-400 font-mono text-sm">
-            <span>PLAYER 1</span>
+            <span>MISSION</span>
             <span className="animate-pulse">●</span>
-            <span>READY</span>
+            <span>UPLOAD {MAX_FILES} IMAGES</span>
           </div>
         </div>
 
@@ -555,17 +652,31 @@ export default function ImageTrainingUploader() {
           {/* Files */}
           <div className="bg-black border-2 border-pink-400 p-2 sm:p-3 rounded font-mono">
             <div className="text-pink-400 text-xs uppercase tracking-wide">Files</div>
-            <div className="text-pink-300 text-lg sm:text-xl font-bold">{files.length}/50</div>
+            <div className="text-pink-300 text-lg sm:text-xl font-bold">{files.length}/{MAX_FILES}</div>
           </div>
 
-          {/* Status */}
+          {/* Size */}
           <div className="bg-black border-2 border-cyan-400 p-2 sm:p-3 rounded font-mono">
-            <div className="text-cyan-400 text-xs uppercase tracking-wide">Status</div>
-            <div className="text-cyan-300 text-lg sm:text-xl font-bold">
-              {uploadingFiles > 0 ? "LOADING" : completedFiles >= 10 ? "READY" : "WAITING"}
+            <div className="text-cyan-400 text-xs uppercase tracking-wide">Size</div>
+            <div className={`text-lg sm:text-xl font-bold ${totalSizeMB > MAX_TOTAL_SIZE_MB ? 'text-red-300' : 'text-cyan-300'}`}>
+              {totalSizeMB.toFixed(1)}MB
             </div>
           </div>
         </div>
+
+        {/* Size Warning Alert */}
+        {sizeWarning && (
+          <div className="mb-6 bg-yellow-900 border-2 border-yellow-400 p-3 sm:p-4 rounded font-mono">
+            <div className="flex items-center gap-2 mb-2">
+              <FileWarning className="h-5 w-5 text-yellow-400 animate-pulse flex-shrink-0" />
+              <span className="text-yellow-300 text-xs sm:text-sm font-bold uppercase tracking-wide">SIZE WARNING</span>
+            </div>
+            <div className="text-yellow-200 text-xs">{sizeWarning}</div>
+            <div className="text-yellow-100 text-xs mt-1">
+              💡 TIP: Resize images to under {MAX_FILE_SIZE_MB}MB each to prevent training timeouts
+            </div>
+          </div>
+        )}
 
         {/* Validation Alert - Retro Style */}
         {validationMessage && (
@@ -584,8 +695,9 @@ export default function ImageTrainingUploader() {
           onDrop={handleDrop}
           className={`
             relative border-4 border-dashed rounded-lg p-6 sm:p-8 text-center transition-all duration-300 cursor-pointer font-mono mb-6
-            ${
-              isDragOver
+            ${files.length >= MAX_FILES 
+              ? "border-gray-500 bg-gray-800/50 cursor-not-allowed opacity-50"
+              : isDragOver
                 ? "border-pink-400 bg-pink-900/20 shadow-lg shadow-pink-500/25 animate-pulse"
                 : "border-gray-600 hover:border-purple-400 hover:bg-purple-900/10 hover:shadow-lg hover:shadow-purple-500/25"
             }
@@ -599,6 +711,7 @@ export default function ImageTrainingUploader() {
             accept="image/*"
             onChange={handleFileSelect}
             className="hidden"
+            disabled={files.length >= MAX_FILES}
           />
 
           <div className="space-y-4 sm:space-y-6">
@@ -607,38 +720,53 @@ export default function ImageTrainingUploader() {
               <div className="relative">
                 <div
                   className={`w-16 h-16 sm:w-20 sm:h-20 border-4 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                    isUploading ? "border-pink-400 bg-pink-500/20 animate-bounce" : "border-gray-500 bg-gray-800"
+                    files.length >= MAX_FILES 
+                      ? "border-gray-500 bg-gray-700"
+                      : isUploading 
+                        ? "border-pink-400 bg-pink-500/20 animate-bounce" 
+                        : "border-gray-500 bg-gray-800"
                   }`}
                 >
-                  {isUploading ? (
+                  {files.length >= MAX_FILES ? (
+                    <X className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" />
+                  ) : isUploading ? (
                     <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-400 animate-spin" />
                   ) : (
                     <Upload className={`w-8 h-8 sm:w-10 sm:h-10 ${isDragOver ? "text-pink-400" : "text-gray-400"}`} />
                   )}
                 </div>
                 {/* Pixel corners */}
-                <div className="absolute -top-1 -left-1 w-3 h-3 bg-cyan-400"></div>
-                <div className="absolute -top-1 -right-1 w-3 h-3 bg-pink-400"></div>
-                <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-yellow-400"></div>
-                <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400"></div>
+                {files.length < MAX_FILES && (
+                  <>
+                    <div className="absolute -top-1 -left-1 w-3 h-3 bg-cyan-400"></div>
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-pink-400"></div>
+                    <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-yellow-400"></div>
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400"></div>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="space-y-2">
               <h3 className="text-lg sm:text-xl font-bold text-white uppercase tracking-wider">
-                {isDragOver
-                  ? ">>> DROP FILES HERE <<<"
-                  : files.length === 0
-                    ? "INSERT FIRST CARTRIDGE"
-                    : "ADD MORE CARTRIDGES"}
+                {files.length >= MAX_FILES
+                  ? ">>> UPLOAD COMPLETE <<<"
+                  : isDragOver
+                    ? ">>> DROP FILES HERE <<<"
+                    : files.length === 0
+                      ? "UPLOAD EXACTLY 10 IMAGES"
+                      : `ADD ${MAX_FILES - files.length} MORE IMAGES`}
               </h3>
               <p className="text-gray-400 uppercase text-xs sm:text-sm tracking-wide">
-                DRAG & DROP OR <span className="text-pink-400 animate-pulse">PRESS START</span>
+                {files.length >= MAX_FILES 
+                  ? "READY FOR TRAINING"
+                  : "DRAG & DROP OR " + (files.length === 0 ? "" : "") + "PRESS TO BROWSE"}
               </p>
               <div className="text-xs text-gray-500 space-y-1">
                 <div>SUPPORTED: JPG • PNG • GIF • WEBP</div>
-                <div>UPLOAD ONE BY ONE OR IN BATCHES</div>
-                <div>MINIMUM: 10 FILES • MAXIMUM: 50 FILES</div>
+                <div>EXACTLY {MAX_FILES} IMAGES REQUIRED FOR TRAINING</div>
+                <div>RECOMMENDED: UNDER {MAX_FILE_SIZE_MB}MB PER IMAGE</div>
+                <div>TOTAL SIZE: UNDER {MAX_TOTAL_SIZE_MB}MB RECOMMENDED</div>
               </div>
             </div>
           </div>
@@ -650,7 +778,7 @@ export default function ImageTrainingUploader() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <h3 className="text-lg font-bold font-mono text-white uppercase tracking-wide flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-cyan-400" />
-                INVENTORY [{files.length}]
+                TRAINING SET [{files.length}/{MAX_FILES}]
               </h3>
               <Button
                 variant="outline"
@@ -659,6 +787,8 @@ export default function ImageTrainingUploader() {
                   play("click")
                   setFiles([])
                   setScore(0)
+                  setValidationMessage("")
+                  setSizeWarning("")
                 }}
                 className="bg-red-900 border-red-400 text-red-300 hover:bg-red-800 font-mono text-xs uppercase tracking-wide"
               >
@@ -666,7 +796,7 @@ export default function ImageTrainingUploader() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-2 sm:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
               {files.map((file, index) => (
                 <div
                   key={file.id}
@@ -678,6 +808,13 @@ export default function ImageTrainingUploader() {
                   <div className="absolute top-1 left-1 bg-black text-yellow-400 text-xs font-mono px-1 rounded z-10">
                     {index + 1}
                   </div>
+
+                  {/* Size Warning Indicator */}
+                  {file.sizeWarning && (
+                    <div className="absolute top-1 left-8 bg-yellow-500 text-black text-xs font-mono px-1 rounded z-10">
+                      !
+                    </div>
+                  )}
 
                   {/* Thumbnail */}
                   <div className="aspect-square relative overflow-hidden">
@@ -744,11 +881,24 @@ export default function ImageTrainingUploader() {
                   {/* File Info */}
                   <div className="p-1 sm:p-2 bg-black border-t border-gray-700">
                     <p className="text-xs font-mono text-gray-300 truncate uppercase">
-                      {file.name ? file.name.substring(0, 6) + "..." : "UNKNOWN"}
+                      {file.name ? file.name.substring(0, 8) + "..." : "UNKNOWN"}
                     </p>
-                    <p className="text-xs text-gray-500 font-mono">
+                    <p className={`text-xs font-mono ${file.sizeWarning ? 'text-yellow-400' : 'text-gray-500'}`}>
                       {file.size ? (file.size / 1024 / 1024).toFixed(1) + "MB" : "0MB"}
+                      {file.sizeWarning && " ⚠️"}
                     </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Empty Slots */}
+              {Array.from({ length: MAX_FILES - files.length }).map((_, index) => (
+                <div
+                  key={`empty-${index}`}
+                  className="aspect-square bg-gray-800/30 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center"
+                >
+                  <div className="text-gray-500 font-mono text-xs">
+                    {files.length + index + 1}
                   </div>
                 </div>
               ))}
@@ -757,7 +907,7 @@ export default function ImageTrainingUploader() {
         )}
 
         {/* Action Buttons - Arcade Style */}
-        {files.length >= 10 && completedFiles >= 10 && (
+        {files.length === MAX_FILES && completedFiles === MAX_FILES && (
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
             <Button
               size="lg"
@@ -770,37 +920,37 @@ export default function ImageTrainingUploader() {
         )}
 
         {/* Progress Indicator when under 10 files */}
-        {files.length < 10 && (
+        {files.length < MAX_FILES && (
           <div className="mt-8 text-center">
             <div className="bg-gray-800 border-2 border-gray-600 p-4 rounded-lg font-mono">
               <div className="text-gray-400 text-sm uppercase tracking-wide mb-2">MISSION PROGRESS</div>
               <div className="flex items-center justify-center gap-2 mb-2">
                 <div className="text-yellow-400 text-2xl font-bold">{files.length}</div>
                 <div className="text-gray-500">/</div>
-                <div className="text-green-400 text-2xl font-bold">10</div>
+                <div className="text-green-400 text-2xl font-bold">{MAX_FILES}</div>
               </div>
               <div className="w-full bg-gray-700 h-3 rounded-full overflow-hidden mb-2">
                 <div
                   className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 transition-all duration-500"
-                  style={{ width: `${(files.length / 10) * 100}%` }}
+                  style={{ width: `${(files.length / MAX_FILES) * 100}%` }}
                 />
               </div>
               <div className="text-xs text-gray-500 uppercase">
-                {files.length === 0 ? "START YOUR MISSION" : `${10 - files.length} MORE TO UNLOCK TRAINING`}
+                {files.length === 0 ? "START YOUR MISSION" : `${MAX_FILES - files.length} MORE TO UNLOCK TRAINING`}
               </div>
             </div>
           </div>
         )}
 
         {/* Show when you have files but not all completed */}
-        {files.length >= 10 && completedFiles < 10 && (
+        {files.length === MAX_FILES && completedFiles < MAX_FILES && (
           <div className="mt-8 text-center">
             <div className="bg-yellow-900 border-2 border-yellow-400 p-4 rounded-lg font-mono">
               <div className="text-yellow-400 text-sm uppercase tracking-wide mb-2">UPLOADING IN PROGRESS</div>
               <div className="flex items-center justify-center gap-2 mb-2">
                 <div className="text-yellow-400 text-2xl font-bold">{completedFiles}</div>
                 <div className="text-gray-500">/</div>
-                <div className="text-green-400 text-2xl font-bold">{files.length}</div>
+                <div className="text-green-400 text-2xl font-bold">{MAX_FILES}</div>
                 <div className="text-gray-500 text-sm">COMPLETED</div>
               </div>
               <div className="text-xs text-yellow-300 uppercase animate-pulse">WAIT FOR ALL UPLOADS TO COMPLETE</div>
