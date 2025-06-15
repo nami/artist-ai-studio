@@ -525,8 +525,7 @@ export default function ImageTrainingUploader() {
   }
 
   return (
-    <div className="w-full min-h-screen bg-black">
-      {/* Retro CRT Screen Container */}
+    <div className="w-full p-4">
       <div className="bg-gray-900 p-4 sm:p-6 lg:p-8 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden max-w-none m-2 sm:m-4 lg:m-6">
         {/* Scanlines Effect */}
         <div className="absolute inset-0 pointer-events-none opacity-10">

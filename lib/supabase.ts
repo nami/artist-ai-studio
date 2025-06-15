@@ -1,13 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Debug environment variables (only on client)
-if (typeof window !== 'undefined') {
-  console.log('Supabase Environment Check:', {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET',
-    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'SET' : 'NOT SET'
-  });
-}
-
 // Validate environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

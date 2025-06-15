@@ -246,7 +246,7 @@ export function AuthModals({
     
     setIsSubmitting(true)
     setError('')
-    
+
     try {
       play('click')
       
@@ -321,8 +321,8 @@ export function AuthModals({
         {/* Placeholder buttons that match server-rendered size */}
         <div className="w-16 h-8 bg-transparent"></div>
         <div className="w-16 h-8 bg-transparent"></div>
-      </div>
-    )
+            </div>
+  )
   }
 
   return (
@@ -394,4 +394,4 @@ export function AuthModals({
       />
     </>
   )
-}
+} 

@@ -6,7 +6,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route"
 export default function TrainingPage() {
   return (
     <ProtectedRoute>
-      <div className="container mx-auto p-4">
+      <div className="container mx-auto p-4 bg-transparent">
         <ImageTrainingUploader />
       </div>
     </ProtectedRoute>
