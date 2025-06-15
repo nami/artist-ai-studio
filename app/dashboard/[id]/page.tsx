@@ -1,176 +1,361 @@
 "use client"
+
 import { useState, useEffect } from "react"
-import { ArrowLeft, Clock, Zap, CheckCircle, AlertCircle, Cpu, Loader2 } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
+import {
+  ArrowLeft,
+  Clock,
+  Zap,
+  CheckCircle,
+  AlertCircle,
+  Cpu,
+  Loader2,
+} from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
-import { startTraining } from "@/lib/api-client"
+import { checkTrainingStatus } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
+import { useSound } from "@/contexts/sound-context"
 
-interface TrainingDashboardProps {
-  onClose: () => void
-  trainingImages: Array<{ id: string; preview: string; name?: string }>
-  playSound: (sound: string) => void
-  subjectName: string
-  subjectType: string
-  imageUrls: string[]
+interface Dataset {
+  id: string
+  name: string
+  subject_name: string
+  subject_type: string
+  trigger_word: string
+  training_status: string
+  training_id: string
+  model_version: string
+  created_at: string
+  updated_at: string
 }
 
-export function TrainingDashboard({ 
-  onClose, 
-  trainingImages, 
-  playSound,
-  subjectName,
-  subjectType,
-  imageUrls
-}: TrainingDashboardProps) {
-  const { user, isConfigured } = useAuth()
+interface TrainingImage {
+  id: string
+  preview: string
+  name: string
+}
+
+export default function TrainingDashboardPage() {
+  const params = useParams()
+  const router = useRouter()
+  const { user } = useAuth()
   const { toast } = useToast()
-  
-  // Real training state
-  const [datasetId, setDatasetId] = useState<string | null>(null)
-  const [trainingId, setTrainingId] = useState<string | null>(null)
-  const [realTrainingStatus, setRealTrainingStatus] = useState<"pending" | "processing" | "completed" | "failed">("pending")
+  const { play: playSound } = useSound()
+
+  const trainingId = params.id as string
+
+  // Data from API
+  const [dataset, setDataset] = useState<Dataset | null>(null)
+  const [trainingImages, setTrainingImages] = useState<TrainingImage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Training status
+  const [realTrainingStatus, setRealTrainingStatus] = useState<
+    "pending" | "processing" | "completed" | "failed"
+  >("pending")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [startTime, setStartTime] = useState<Date | null>(null)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [isTrainingStarted, setIsTrainingStarted] = useState(false)
 
-  // Check configuration on mount
+  // Load training data
   useEffect(() => {
-    if (!isConfigured) {
-      setRealTrainingStatus("failed")
-      setErrorMessage("Supabase is not configured. Please check your environment variables.")
-      playSound("error")
-    }
-  }, [isConfigured, playSound])
-
-  // Manual training start function
-  const initiateTraining = async () => {
-    if (!user || !imageUrls.length) return
-
-    try {
-      setStartTime(new Date())
-      setIsTrainingStarted(true)
-      
-      const result = await startTraining({
-        imageUrls,
-        subjectName,
-        subjectType,
-        userId: user.id,
-      })
-      
-      setDatasetId(result.datasetId)
-      setTrainingId(result.trainingId)
-      setRealTrainingStatus("processing")
-      
-      toast({
-        title: 'Training Started! 🎨',
-        description: 'Your model training has begun.',
-      })
-      
-      playSound("levelUp")
-    } catch (error) {
-      console.error('Training start error:', error)
-      setRealTrainingStatus("failed")
-      setErrorMessage("Failed to start training")
-      playSound("error")
-      setIsTrainingStarted(false)
-      
-      toast({
-        title: 'Training Failed',
-        description: 'Could not start training. Please try again.',
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Poll for training status updates
-  useEffect(() => {
-    if (!isConfigured || !datasetId) return
-
-    const pollInterval = setInterval(async () => {
+    const fetchTrainingData = async () => {
       try {
-        const { data, error } = await supabase
-          .from('datasets')
-          .select('training_status, error_message, model_version')
-          .eq('id', datasetId)
-          .single()
+        console.log('🔍 Loading training dashboard for:', trainingId)
 
-        if (error) throw error
-
-        if (data) {
-          setRealTrainingStatus(data.training_status)
-          setErrorMessage(data.error_message)
-          
-          // Update UI based on real status
-          if (data.training_status === "completed") {
-            playSound("complete")
-            clearInterval(pollInterval)
-          } else if (data.training_status === "failed") {
-            playSound("error")
-            clearInterval(pollInterval)
-          }
+        const response = await fetch(`/api/training/${trainingId}`)
+        
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to fetch training data')
         }
-      } catch (error) {
-        console.error('Status poll error:', error)
+
+        const data = await response.json()
+        
+        setDataset(data.dataset)
+        setTrainingImages(data.trainingImages)
+        
+        // Determine if training has actually started based on status
+        const status = data.dataset.training_status
+        setRealTrainingStatus(status)
+        
+        if (status === "processing" || status === "completed" || status === "failed") {
+          setIsTrainingStarted(true)
+          setStartTime(new Date(data.dataset.created_at))
+        } else {
+          // Training created but not started yet
+          setIsTrainingStarted(false)
+        }
+
+        console.log('✅ Training dashboard loaded:', {
+          subject: data.dataset.subject_name,
+          status: status,
+          started: status !== "pending",
+          imageCount: data.trainingImages.length
+        })
+
+      } catch (err) {
+        console.error('💥 Failed to load training dashboard:', err)
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      } finally {
+        setLoading(false)
       }
-    }, 5000) // Poll every 5 seconds
+    }
 
-    return () => clearInterval(pollInterval)
-  }, [datasetId, playSound, isConfigured])
+    if (trainingId) {
+      fetchTrainingData()
+    }
+  }, [trainingId])
 
-  // Update elapsed time
-  useEffect(() => {
-    if (!startTime || realTrainingStatus === "completed" || realTrainingStatus === "failed") return
-
-    const interval = setInterval(() => {
-      const now = new Date()
-      const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
-      setElapsedTime(elapsed)
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [startTime, realTrainingStatus])
-
+  /* ———————————————————————————————————————————
+     Helpers
+  ——————————————————————————————————————————— */
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`
   }
 
   const getStatusDisplay = () => {
     if (!isTrainingStarted) {
-      return { text: "READY TO START", color: "text-yellow-400", icon: <Clock className="w-4 h-4" /> }
+      return {
+        text: "READY TO START",
+        color: "text-yellow-400",
+        icon: <Clock className="w-4 h-4" />,
+      }
     }
-    
+
     switch (realTrainingStatus) {
       case "pending":
-        return { text: "INITIALIZING", color: "text-yellow-400", icon: <Loader2 className="w-4 h-4 animate-spin" /> }
+        return {
+          text: "INITIALIZING",
+          color: "text-yellow-400",
+          icon: <Loader2 className="w-4 h-4 animate-spin" />,
+        }
       case "processing":
-        return { text: "TRAINING", color: "text-cyan-400", icon: <Zap className="w-4 h-4 animate-pulse" /> }
+        return {
+          text: "TRAINING",
+          color: "text-cyan-400",
+          icon: <Zap className="w-4 h-4 animate-pulse" />,
+        }
       case "completed":
-        return { text: "COMPLETE", color: "text-green-400", icon: <CheckCircle className="w-4 h-4" /> }
+        return {
+          text: "COMPLETE",
+          color: "text-green-400",
+          icon: <CheckCircle className="w-4 h-4" />,
+        }
       case "failed":
-        return { text: "FAILED", color: "text-red-400", icon: <AlertCircle className="w-4 h-4" /> }
+        return {
+          text: "FAILED",
+          color: "text-red-400",
+          icon: <AlertCircle className="w-4 h-4" />,
+        }
       default:
-        return { text: "UNKNOWN", color: "text-gray-400", icon: <Clock className="w-4 h-4" /> }
+        return {
+          text: "UNKNOWN",
+          color: "text-gray-400",
+          icon: <Clock className="w-4 h-4" />,
+        }
     }
   }
-
-  const statusDisplay = getStatusDisplay()
 
   const getEstimatedTime = () => {
     if (!isTrainingStarted) return "Click 'Start Training' to begin"
     if (realTrainingStatus === "completed") return "Completed"
     if (realTrainingStatus === "failed") return "Failed"
     if (realTrainingStatus === "pending") return "Starting..."
-    
-    // Typical Flux training takes 20-40 minutes
-    const estimatedTotal = 25 * 60 // 25 minutes in seconds
+
+    // Typical Flux training takes 20-40 min
+    const estimatedTotal = 25 * 60 // 25 min
     const remaining = Math.max(0, estimatedTotal - elapsedTime)
     return `~${formatTime(remaining)} remaining`
   }
+
+  /* ———————————————————————————————————————————
+     Start training function
+  ——————————————————————————————————————————— */
+  const initiateTraining = async () => {
+    if (!user || !dataset || !trainingImages.length) {
+      setRealTrainingStatus("failed")
+      setErrorMessage("No images available for training")
+      playSound("error")
+      return
+    }
+
+    try {
+      setStartTime(new Date())
+      setIsTrainingStarted(true)
+      setRealTrainingStatus("processing")
+
+      // Get image URLs from training images
+      const imageUrls = trainingImages.map(img => img.preview)
+
+      const response = await fetch('/api/train', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageUrls,
+          subjectName: dataset.subject_name,
+          subjectType: dataset.subject_type,
+          userId: user.id,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start training')
+      }
+
+      toast({
+        title: "Training Started! 🎨",
+        description: "Your model training has begun.",
+      })
+      playSound("levelUp")
+      
+    } catch (err) {
+      console.error("Training start error:", err)
+      setRealTrainingStatus("failed")
+      setErrorMessage("Failed to start training")
+      playSound("error")
+      setIsTrainingStarted(false)
+
+      toast({
+        title: "Training Failed",
+        description: "Could not start training. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  /* ———————————————————————————————————————————
+     Poll Supabase for status updates
+  ——————————————————————————————————————————— */
+  useEffect(() => {
+    if (!dataset?.id) return
+
+    const poll = setInterval(async () => {
+      try {
+        const { data, error } = await supabase
+          .from("datasets")
+          .select("training_status, error_message")
+          .eq("id", dataset.id)
+          .single()
+
+        if (error) throw error
+        if (!data) return
+
+        setRealTrainingStatus(data.training_status)
+        setErrorMessage(data.error_message)
+
+        if (
+          data.training_status === "completed" ||
+          data.training_status === "failed"
+        ) {
+          clearInterval(poll)
+        }
+      } catch (err) {
+        console.error("Status poll error:", err)
+      }
+    }, 5000) // 5 s
+
+    return () => clearInterval(poll)
+  }, [dataset?.id])
+
+  /* ———————————————————————————————————————————
+     Extra poll for local dev (no HTTPS webhook)
+  ——————————————————————————————————————————— */
+  useEffect(() => {
+    if (!trainingId) return
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || ""
+    if (appUrl.startsWith("https://")) return // prod uses webhook
+
+    const poll = setInterval(async () => {
+      try {
+        const data = await checkTrainingStatus(trainingId)
+        if (data.status === "succeeded") {
+          setRealTrainingStatus("completed")
+          clearInterval(poll)
+        } else if (
+          data.status === "failed" ||
+          data.status === "canceled"
+        ) {
+          setRealTrainingStatus("failed")
+          clearInterval(poll)
+        }
+      } catch (err) {
+        console.error("Local replicate-status poll error:", err)
+      }
+    }, 10000) // 10 s
+
+    return () => clearInterval(poll)
+  }, [trainingId])
+
+  /* ———————————————————————————————————————————
+     Elapsed-time counter
+  ——————————————————————————————————————————— */
+  useEffect(() => {
+    if (
+      !startTime ||
+      realTrainingStatus === "completed" ||
+      realTrainingStatus === "failed"
+    )
+      return
+
+    const t = setInterval(() => {
+      const now = new Date()
+      setElapsedTime(
+        Math.floor((now.getTime() - startTime.getTime()) / 1000),
+      )
+    }, 1000)
+
+    return () => clearInterval(t)
+  }, [startTime, realTrainingStatus])
+
+  /* ———————————————————————————————————————————
+     Loading / Error States
+  ——————————————————————————————————————————— */
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-4" />
+          <p className="text-white font-mono">Loading training dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !dataset) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center bg-red-900 border-2 border-red-400 p-6 rounded-lg">
+          <h2 className="text-red-400 font-mono text-xl mb-2">Dashboard Error</h2>
+          <p className="text-red-300 font-mono mb-4">{error || 'Training data not available'}</p>
+          <button
+            onClick={() => router.push('/training')}
+            className="bg-gray-800 border-2 border-gray-600 text-white px-4 py-2 rounded font-mono hover:bg-gray-700"
+          >
+            ← Back to Training
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  /* ———————————————————————————————————————————
+     UI helpers
+  ——————————————————————————————————————————— */
+  const statusDisplay = getStatusDisplay()
 
   return (
     <div className="min-h-screen bg-black overflow-y-auto">
@@ -230,7 +415,7 @@ export function TrainingDashboard({
                     playSound("click")
                     initiateTraining()
                   }}
-                  disabled={!user || !isConfigured}
+                  disabled={!user || trainingImages.length === 0}
                   className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-black font-bold font-mono uppercase tracking-wider px-6 py-2 text-base border-2 border-green-400 shadow-lg shadow-green-500/25"
                 >
                   ⚡ START TRAINING
@@ -239,12 +424,12 @@ export function TrainingDashboard({
               <Button
                 onClick={() => {
                   playSound("click")
-                  onClose()
+                  router.push('/training')
                 }}
                 className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2"
               >
                 <ArrowLeft className="w-4 h-4" />
-                BACK TO UPLOADER
+                BACK TO TRAINING
               </Button>
             </div>
           </div>
@@ -254,11 +439,11 @@ export function TrainingDashboard({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div>
                 <span className="text-gray-400 font-mono text-sm uppercase">Subject:</span>
-                <div className="text-cyan-400 font-mono text-lg font-bold">{subjectName}</div>
+                <div className="text-cyan-400 font-mono text-lg font-bold">{dataset.subject_name}</div>
               </div>
               <div>
                 <span className="text-gray-400 font-mono text-sm uppercase">Type:</span>
-                <div className="text-pink-400 font-mono text-lg font-bold">{subjectType}</div>
+                <div className="text-pink-400 font-mono text-lg font-bold">{dataset.subject_type}</div>
               </div>
               <div>
                 <span className="text-gray-400 font-mono text-sm uppercase">Images:</span>
@@ -301,9 +486,9 @@ export function TrainingDashboard({
                     </h2>
                     <p className="text-gray-400 font-mono text-lg">
                       {!isTrainingStarted ? (
-                        <>Ready to train model for <span className="text-cyan-400">{subjectName}</span></>
+                        <>Ready to train model for <span className="text-cyan-400">{dataset.subject_name}</span></>
                       ) : (
-                        <>Training model for <span className="text-cyan-400">{subjectName}</span></>
+                        <>Training model for <span className="text-cyan-400">{dataset.subject_name}</span></>
                       )}
                     </p>
                   </div>
@@ -340,9 +525,8 @@ export function TrainingDashboard({
                   </div>
                   <div className="text-yellow-400">⏳ STEPS: 1000</div>
                   <div className="text-pink-400">🧠 LORA RANK: 16</div>
-                  {trainingId && (
-                    <div className="text-blue-400">🔗 TRAINING ID: {trainingId.slice(0, 8)}...</div>
-                  )}
+                  <div className="text-blue-400">🔗 TRAINING ID: {trainingId.slice(0, 8)}...</div>
+                  <div className="text-purple-400">🎯 TRIGGER: {dataset.trigger_word}</div>
                 </div>
               </div>
             </div>
@@ -393,13 +577,13 @@ export function TrainingDashboard({
                   TRAINING COMPLETE!
                 </h2>
                 <p className="text-green-300 font-mono mb-6">
-                  Your AI model "{subjectName}" has been successfully trained and is ready for deployment.
+                  Your AI model "{dataset.subject_name}" has been successfully trained and is ready for deployment.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Button
                     onClick={() => {
                       playSound("levelUp")
-                      window.location.href = "/generate"
+                      router.push("/generate")
                     }}
                     className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white font-bold font-mono uppercase tracking-wider px-8 py-4 text-lg border-2 border-purple-400 shadow-lg shadow-purple-500/25"
                     size="lg"
@@ -409,13 +593,12 @@ export function TrainingDashboard({
                   <Button
                     onClick={() => {
                       playSound("click")
-                      onClose()
+                      router.push(`/training/${trainingId}`)
                     }}
                     className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
                     size="lg"
                   >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    BACK TO UPLOADER
+                    📸 VIEW TRAINING DATA
                   </Button>
                 </div>
               </div>
@@ -448,18 +631,18 @@ export function TrainingDashboard({
                   <Button
                     onClick={() => {
                       playSound("click")
-                      onClose()
+                      router.push('/training')
                     }}
                     className="bg-red-900/80 border-2 border-red-400/50 text-red-300 hover:bg-red-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
                     size="lg"
                   >
                     <ArrowLeft className="w-4 h-4 mr-2" />
-                    BACK TO UPLOADER
+                    BACK TO TRAINING
                   </Button>
                   <Button
                     onClick={() => {
                       playSound("click")
-                      window.location.reload()
+                      router.push('/training')
                     }}
                     className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm"
                     size="lg"

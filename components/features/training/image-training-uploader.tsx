@@ -2,20 +2,22 @@
 
 import type React from "react"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building } from 'lucide-react'
+import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building, Loader2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { useSound } from "@/contexts/sound-context"
 import { ImageModal } from "@/components/image-modal"
 import { useRouter } from "next/navigation"
-import { TrainingDashboard } from "@/components/training-dashboard"
 import { useAuth } from "@/hooks/use-auth"
+import { uploadImages } from "@/lib/api-client"
+import { useToast } from "@/hooks/use-toast"
+import { nanoid } from 'nanoid'
 
 interface FileWithPreview extends File {
   id: string
   preview: string
   progress: number
   status: "uploading" | "completed" | "error"
-  uploadedUrl?: string // Add uploaded URL for training
+  uploadedUrl?: string
 }
 
 interface UploadedImage {
@@ -40,16 +42,18 @@ export default function ImageTrainingUploader() {
   const [selectedFile, setSelectedFile] = useState<FileWithPreview | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isTrainingOpen, setIsTrainingOpen] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isStartingTraining, setIsStartingTraining] = useState(false)
   const { play, isMuted, initialize } = useSound()
   const router = useRouter()
   const { user } = useAuth()
+  const { toast } = useToast()
   
   // Training form state
   const [subjectName, setSubjectName] = useState("")
   const [subjectType, setSubjectType] = useState("person")
   const [showTrainingForm, setShowTrainingForm] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
   
   // Keep track of active upload intervals for cleanup
   const activeIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
@@ -98,36 +102,20 @@ export default function ImageTrainingUploader() {
     return true
   }
 
-  const uploadFileToStorage = async (file: File): Promise<string> => {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('userId', user?.id || 'anonymous')
-
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!response.ok) {
-      throw new Error('Upload failed')
-    }
-
-    const data = await response.json()
-    return data.url
-  }
-
   const processFiles = async (fileList: FileList) => {
     const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
 
     const newFiles: FileWithPreview[] = Array.from(fileList)
       .filter((file) => validImageTypes.includes(file.type))
-      .map((file) => ({
-        ...file,
-        id: Math.random().toString(36).substr(2, 9),
-        preview: URL.createObjectURL(file),
-        progress: 0,
-        status: "uploading" as const,
-      }))
+      .map((file) => {
+        // ✅ mutate original File object so it stays an actual File
+        return Object.assign(file, {
+          id: nanoid(),
+          preview: URL.createObjectURL(file),
+          progress: 0,
+          status: 'uploading' as const,
+        }) as FileWithPreview
+      })
 
     // Check if we would exceed the maximum
     if (files.length + newFiles.length > 50) {
@@ -149,84 +137,54 @@ export default function ImageTrainingUploader() {
       setValidationMessage("")
     }
 
-    // Start uploading files to storage
-    newFiles.forEach((file) => {
-      simulateUploadAndStore(file.id, file)
-    })
+    // Actually upload the files
+    uploadFilesToStorage(newFiles)
   }
 
-  const simulateUploadAndStore = async (fileId: string, file: File) => {
-    let progressSound = 0
-    let currentProgress = 0
-    let iterationCount = 0
-    const maxIterations = 20
-    
-    const interval = setInterval(async () => {
-      iterationCount++
+  const uploadFilesToStorage = async (filesToUpload: FileWithPreview[]) => {
+    try {
+      // Upload files to storage using the API
+      const actualFiles = filesToUpload.map(f => f as File)
+      const uploadedUrls = await uploadImages(actualFiles)
       
-      setFiles((prev) =>
-        prev.map((f) => {
-          if (f.id === fileId) {
-            let newProgress: number
-            
-            if (iterationCount >= maxIterations) {
-              newProgress = 100
-            } else if (currentProgress >= 95) {
-              const remaining = 100 - currentProgress
-              newProgress = currentProgress + Math.min(remaining, Math.random() * 5 + 1)
-            } else {
-              newProgress = currentProgress + Math.random() * 8 + 2
-            }
-            
-            newProgress = Math.min(Math.round(newProgress * 10) / 10, 100)
-            currentProgress = newProgress
-            
-            const status = newProgress >= 100 ? "completed" : "uploading"
-
-            if (Math.floor(newProgress / 25) > Math.floor(progressSound / 25)) {
-              play("upload")
-              progressSound = newProgress
-            }
-
-            if (newProgress >= 100) {
-              clearInterval(interval)
-              activeIntervalsRef.current.delete(fileId)
-              
-              // Upload the actual file to storage
-              uploadFileToStorage(file)
-                .then((uploadedUrl) => {
-                  setFiles((prevFiles) =>
-                    prevFiles.map((prevFile) =>
-                      prevFile.id === fileId
-                        ? { ...prevFile, uploadedUrl }
-                        : prevFile
-                    )
-                  )
-                })
-                .catch((error) => {
-                  console.error('File upload failed:', error)
-                  setFiles((prevFiles) =>
-                    prevFiles.map((prevFile) =>
-                      prevFile.id === fileId
-                        ? { ...prevFile, status: "error" as const }
-                        : prevFile
-                    )
-                  )
-                })
-              
-              setScore((prevScore) => prevScore + 50)
-              play("complete")
-              newProgress = 100
-            }
-
-            return { ...f, progress: newProgress, status }
+      // Update files with uploaded URLs and mark as completed
+      setFiles(prev => prev.map(file => {
+        const index = filesToUpload.findIndex(f => f.id === file.id)
+        if (index !== -1) {
+          return {
+            ...file,
+            status: "completed" as const,
+            progress: 100,
+            uploadedUrl: uploadedUrls[index]
           }
-          return f
-        }),
-      )
-    }, 150)
-    
-    activeIntervalsRef.current.set(fileId, interval)
+        }
+        return file
+      }))
+
+      // Play completion sounds
+      filesToUpload.forEach(() => {
+        setScore((prevScore) => prevScore + 50)
+        play("complete")
+      })
+
+    } catch (error) {
+      console.error('Upload error:', error)
+      
+      // Mark files as failed
+      setFiles(prev => prev.map(file => {
+        if (filesToUpload.some(f => f.id === file.id)) {
+          return { ...file, status: "error" as const }
+        }
+        return file
+      }))
+      
+      toast({
+        title: 'Upload Failed',
+        description: 'Some files failed to upload. Please try again.',
+        variant: 'destructive',
+      })
+      play("error")
+    }
   }
 
   const handleDragOver = useCallback(
@@ -268,16 +226,11 @@ export default function ImageTrainingUploader() {
   const removeFile = (fileId: string) => {
     play("delete")
     
-    const interval = activeIntervalsRef.current.get(fileId)
-    if (interval) {
-      clearInterval(interval)
-      activeIntervalsRef.current.delete(fileId)
-    }
-    
     setFiles((prev) => {
       const updatedFiles = prev.filter((file) => file.id !== fileId)
       setScore((prevScore) => Math.max(0, prevScore - 150))
 
+      // Always show validation message if under 10 files
       if (updatedFiles.length < 10) {
         setValidationMessage(`NEED ${10 - updatedFiles.length} MORE IMAGES • MIN: 10 REQUIRED`)
       } else {
@@ -291,30 +244,24 @@ export default function ImageTrainingUploader() {
   const replaceFile = (fileId: string, newFile: File) => {
     play("upload")
     
-    const existingInterval = activeIntervalsRef.current.get(fileId)
-    if (existingInterval) {
-      clearInterval(existingInterval)
-      activeIntervalsRef.current.delete(fileId)
-    }
-    
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === fileId) {
+          // Clean up old preview URL
           URL.revokeObjectURL(file.preview)
 
-          return {
-            ...newFile,
-            id: fileId,
-            preview: URL.createObjectURL(newFile),
-            progress: 0,
-            status: "uploading" as const,
-          }
+          const newFileWithPreview = {} as FileWithPreview
+
+          Object.assign(newFileWithPreview, newFile)
+
+          // Upload the new file
+          uploadFilesToStorage([newFileWithPreview])
+          
+          return newFileWithPreview
         }
         return file
       }),
     )
-
-    simulateUploadAndStore(fileId, newFile)
   }
 
   const openImageModal = (file: FileWithPreview) => {
@@ -344,28 +291,86 @@ export default function ImageTrainingUploader() {
     setShowTrainingForm(true)
   }
 
-  const startTraining = () => {
+  const startTraining = async () => {
     if (!subjectName.trim()) {
       play("error")
       return
     }
-
+  
+    if (!user) {
+      toast({
+        title: 'Authentication Required',
+        description: 'Please log in to start training.',
+        variant: 'destructive',
+      })
+      return
+    }
+  
+    setIsStartingTraining(true)
     play("levelUp")
-
-    // Convert files to training images format and get uploaded URLs
-    const completedImages = files
-      .filter((f) => f.status === "completed" && f.uploadedUrl)
-      .map((f) => ({
-        id: f.id,
-        preview: f.preview,
-        name: f.name,
-      }))
-
-    const imageUrls = files
-      .filter((f) => f.status === "completed" && f.uploadedUrl)
-      .map((f) => f.uploadedUrl!)
-
-    setIsTrainingOpen(true)
+  
+    try {
+      // Get the uploaded URLs from completed files
+      const imageUrls = files
+        .filter((f) => f.status === "completed" && f.uploadedUrl)
+        .map((f) => f.uploadedUrl!)
+  
+      if (imageUrls.length < 10) {
+        throw new Error('Need at least 10 completed uploads')
+      }
+  
+      console.log('🚀 Starting training with:', {
+        subjectName,
+        subjectType,
+        imageCount: imageUrls.length,
+        userId: user.id
+      })
+  
+      // Call the training API
+      const response = await fetch('/api/train', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageUrls,
+          subjectName,
+          subjectType,
+          userId: user.id,
+        }),
+      })
+  
+      const data = await response.json()
+  
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start training')
+      }
+  
+      console.log('✅ Training started:', data)
+  
+      toast({
+        title: 'Training Started! 🚀',
+        description: `Training "${subjectName}" with ${imageUrls.length} images`,
+      })
+  
+      // Redirect to the training page instead of showing inline dashboard
+      router.push(`/dashboard/${data.trainingId}`)
+  
+    } catch (error) {
+      console.error('💥 Training start error:', error)
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      
+      toast({
+        title: 'Training Failed',
+        description: errorMessage,
+        variant: 'destructive',
+      })
+      
+      play("error")
+    } finally {
+      setIsStartingTraining(false)
+    }
   }
 
   const completedFiles = files.filter((f) => f.status === "completed").length
@@ -380,35 +385,6 @@ export default function ImageTrainingUploader() {
       setPreviousLevel(level)
     }
   }, [level, previousLevel, play])
-
-  // Show training dashboard if training is open
-  if (isTrainingOpen) {
-    const trainingImages = files
-      .filter((f) => f.status === "completed")
-      .map((f) => ({
-        id: f.id,
-        preview: f.preview,
-        name: f.name,
-      }))
-
-    const imageUrls = files
-      .filter((f) => f.status === "completed" && f.uploadedUrl)
-      .map((f) => f.uploadedUrl!)
-
-    return (
-      <TrainingDashboard 
-        onClose={() => {
-          setIsTrainingOpen(false)
-          setShowTrainingForm(false)
-        }} 
-        trainingImages={trainingImages} 
-        playSound={(sound: string) => play(sound as any)}
-        subjectName={subjectName}
-        subjectType={subjectType}
-        imageUrls={imageUrls}
-      />
-    )
-  }
 
   // Show training form if requested
   if (showTrainingForm) {
@@ -511,10 +487,17 @@ export default function ImageTrainingUploader() {
                 </Button>
                 <Button
                   onClick={startTraining}
-                  disabled={!subjectName.trim() || completedFiles < 10}
+                  disabled={!subjectName.trim() || completedFiles < 10 || isStartingTraining}
                   className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-white font-bold font-mono uppercase tracking-wider px-8 py-3 text-lg border-2 border-purple-400 shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex-1"
                 >
-                  🚀 Start Training
+                  {isStartingTraining ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Starting...
+                    </>
+                  ) : (
+                    "🚀 Start Training"
+                  )}
                 </Button>
               </div>
             </div>
@@ -525,7 +508,8 @@ export default function ImageTrainingUploader() {
   }
 
   return (
-    <div className="w-full p-4">
+    <div className="w-full min-h-screen bg-black">
+      {/* Retro CRT Screen Container */}
       <div className="bg-gray-900 p-4 sm:p-6 lg:p-8 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden max-w-none m-2 sm:m-4 lg:m-6">
         {/* Scanlines Effect */}
         <div className="absolute inset-0 pointer-events-none opacity-10">
@@ -623,10 +607,14 @@ export default function ImageTrainingUploader() {
               <div className="relative">
                 <div
                   className={`w-16 h-16 sm:w-20 sm:h-20 border-4 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                    isDragOver ? "border-pink-400 bg-pink-500/20 animate-bounce" : "border-gray-500 bg-gray-800"
+                    isUploading ? "border-pink-400 bg-pink-500/20 animate-bounce" : "border-gray-500 bg-gray-800"
                   }`}
                 >
-                  <Upload className={`w-8 h-8 sm:w-10 sm:h-10 ${isDragOver ? "text-pink-400" : "text-gray-400"}`} />
+                  {isUploading ? (
+                    <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-400 animate-spin" />
+                  ) : (
+                    <Upload className={`w-8 h-8 sm:w-10 sm:h-10 ${isDragOver ? "text-pink-400" : "text-gray-400"}`} />
+                  )}
                 </div>
                 {/* Pixel corners */}
                 <div className="absolute -top-1 -left-1 w-3 h-3 bg-cyan-400"></div>
@@ -669,10 +657,6 @@ export default function ImageTrainingUploader() {
                 size="sm"
                 onClick={() => {
                   play("click")
-                  activeIntervalsRef.current.forEach((interval) => {
-                    clearInterval(interval)
-                  })
-                  activeIntervalsRef.current.clear()
                   setFiles([])
                   setScore(0)
                 }}
@@ -781,14 +765,6 @@ export default function ImageTrainingUploader() {
               className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-black font-bold font-mono uppercase tracking-wider px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg border-2 border-green-400 shadow-lg shadow-green-500/25"
             >
               ⚡ START TRAINING
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              className="bg-purple-900 border-2 border-purple-400 text-purple-300 hover:bg-purple-800 font-mono uppercase tracking-wider px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg shadow-lg shadow-purple-500/25"
-              onClick={() => play("click")}
-            >
-              💾 SAVE STATE
             </Button>
           </div>
         )}

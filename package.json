@@ -50,6 +50,7 @@
     "embla-carousel-react": "latest",
     "framer-motion": "latest",
     "input-otp": "latest",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.514.0",
     "nanoid": "^5.1.5",
     "next": "15.3.3",
