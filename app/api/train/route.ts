@@ -1,244 +1,203 @@
-import { NextRequest, NextResponse } from "next/server";
-import Replicate from "replicate";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { NextRequest, NextResponse } from 'next/server'
+import JSZip from 'jszip'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! });
+// Set to 60 max for hobby plan
+export const maxDuration = 60
 
-// Try the fast trainer first (mentioned in multiple sources as more stable)
-const TRAINER_OWNER = "replicate";
-const TRAINER_MODEL = "fast-flux-trainer";
-
-async function ensureDestination(owner: string, slug: string) {
-  try {
-    await replicate.models.create(owner, slug, {
-      visibility: "private",
-      hardware: "cpu",
-      license_url: "https://creativecommons.org/licenses/by-nc/4.0/",
-      description: "Personal LoRA fine-tunes",
-    });
-    console.log(`↳ created model repo ${owner}/${slug}`);
-  } catch (err: any) {
-    const code = err?.statusCode ?? err?.status ?? null;
-    const txt = (err?.detail ?? err?.message ?? "").toString();
-
-    if (code === 409 || /already exists/i.test(txt)) {
-      console.log(`↳ repo ${owner}/${slug} already exists – continuing`);
-      return;
-    }
-    throw err;
-  }
+// Helper function to safely get error message
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return 'Unknown error'
 }
 
-async function createZipFromImages(imageUrls: string[]): Promise<File> {
-  console.log("📦 Creating ZIP file from images...");
-  
-  const JSZip = (await import('jszip')).default;
-  const zip = new JSZip();
-
-  for (let i = 0; i < imageUrls.length; i++) {
-    const url = imageUrls[i];
-    console.log(`📥 Processing image ${i + 1}/${imageUrls.length}`);
+export async function POST(request: NextRequest) {
+  try {
+    const { imageUrls, subjectName, subjectType, userId } = await request.json()
     
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status}`);
-      }
-      
-      const imageBuffer = await response.arrayBuffer();
-      const filename = `image_${String(i + 1).padStart(3, '0')}.jpg`;
-      
-      // Add image to ZIP
-      zip.file(filename, imageBuffer);
-      
-    } catch (error) {
-      console.error(`Failed to process image ${i + 1}:`, error);
-      throw error;
-    }
-  }
-
-  console.log("🔄 Generating ZIP buffer...");
-  const zipBuffer = await zip.generateAsync({ 
-    type: 'uint8array',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 }
-  });
-  
-  // Convert to File object (needed for Replicate)
-  const zipFile = new File([zipBuffer], 'training_images.zip', { 
-    type: 'application/zip' 
-  });
-  
-  console.log(`✅ ZIP created: ${zipFile.size} bytes`);
-  return zipFile;
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const { imageUrls, subjectName, subjectType, userId } = await req.json();
-
-    if (!imageUrls?.length || !subjectName || !userId) {
+    // Validate inputs quickly
+    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length !== 10) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: 'Exactly 10 image URLs required' },
         { status: 400 }
-      );
+      )
     }
 
-    // Use up to 20 images for better training results
-    const limitedImageUrls = imageUrls.slice(0, 20);
-    
-    console.log(`🎯 Creating ZIP with ${limitedImageUrls.length} images`);
+    if (!subjectName || !subjectType || !userId) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
 
-    // Create dataset record
-    const { data: dataset, error: dbErr } = await supabaseAdmin
-      .from("datasets")
+    console.log(`🎯 Starting training for ${subjectName} with ${imageUrls.length} images`)
+
+    // 1. Create database record first (quick operation)
+    const { data: dataset, error: dbError } = await supabaseAdmin
+      .from('datasets')
       .insert({
         user_id: userId,
-        name: `${subjectName} Model`,
+        name: subjectName,
         subject_name: subjectName,
         subject_type: subjectType,
-        trigger_word: "TOK",
-        training_status: "processing",
+        trigger_word: 'TOK',
+        image_count: imageUrls.length,
+        training_status: 'preparing',
+        created_at: new Date().toISOString()
       })
       .select()
-      .single();
+      .single()
 
-    if (dbErr) throw dbErr;
-
-    // Save training images
-    await supabaseAdmin.from("training_images").insert(
-      limitedImageUrls.map((url: string) => ({
-        dataset_id: dataset.id,
-        image_url: url,
-      }))
-    );
-
-    // Create ZIP file
-    const zipFile = await createZipFromImages(limitedImageUrls);
-
-    // Upload ZIP to Replicate Files API (same as manual website)
-    console.log("📤 Uploading ZIP to Replicate...");
-    const file = await replicate.files.create(zipFile);
-    console.log(`✅ ZIP uploaded: ${file.urls.get}`);
-
-    // Use parameters exactly like the manual website
-    const trainingData = {
-      input_images: file.urls.get,  // ZIP file URL (like manual)
-      trigger_word: "TOK",
-      lora_type: "subject",          // This parameter is used by manual website
-      steps: 1000,
-    };
-
-    const owner = (process.env.REPLICATE_USERNAME || "").trim();
-    if (!owner) throw new Error("REPLICATE_USERNAME env var is not set");
-    
-    const modelSlug = `flux-zip-${Date.now()}`;
-    await ensureDestination(owner, modelSlug);
-    const destination = `${owner}/${modelSlug}` as const;
-
-    console.log("🚀 Starting training with ZIP (like manual website):", {
-      trainer: `${TRAINER_OWNER}/${TRAINER_MODEL}`,
-      destination,
-      zipUrl: file.urls.get,
-      parameters: trainingData
-    });
-
-    // Define versions outside try blocks to fix TypeScript scope issues
-    const fastTrainerVersion = "8b10794665aed907bb98a1a5324cd1d3a8bea0e9b31e65210967fb9c9e2e08ed";
-    const ostrisVersion = "d995297071a44dcb72244e6c19462111649ec86a9646c32df56daa7f14801944";
-    
-    let training;
-    
-    // Try fast trainer with specific version first
-    try {
-      console.log(`🚀 Trying fast trainer version: ${fastTrainerVersion}`);
-      
-      training = await replicate.trainings.create(
-        TRAINER_OWNER,
-        TRAINER_MODEL,
-        fastTrainerVersion,
-        {
-          destination,
-          input: trainingData,
-        }
-      );
-      console.log(`✅ Fast trainer worked: ${training.id}`);
-      
-    } catch (fastTrainerError: unknown) {
-      console.log("⚠️ Fast trainer failed, trying ostris trainer...");
-      console.log("Fast trainer error:", fastTrainerError instanceof Error ? fastTrainerError.message : String(fastTrainerError));
-      
-      // Try ostris trainer with specific working version
-      try {
-        console.log(`🚀 Trying ostris trainer version: ${ostrisVersion}`);
-        
-        const { lora_type, ...ostrisData } = trainingData; // Remove lora_type for ostris
-        
-        training = await replicate.trainings.create(
-          "ostris",
-          "flux-dev-lora-trainer",
-          ostrisVersion,
-          {
-            destination,
-            input: ostrisData,
-          }
-        );
-        console.log(`✅ Ostris trainer worked: ${training.id}`);
-        
-      } catch (ostrisError: unknown) {
-        console.log("⚠️ Ostris trainer also failed, trying with individual URLs...");
-        console.log("Ostris error:", ostrisError instanceof Error ? ostrisError.message : String(ostrisError));
-        
-        // Last resort: Try to extract individual images from ZIP and use as URLs
-        const { lora_type, ...individualData } = trainingData;
-        individualData.input_images = limitedImageUrls; // Use original URLs
-        
-        training = await replicate.trainings.create(
-          "ostris",
-          "flux-dev-lora-trainer",
-          ostrisVersion,
-          {
-            destination,
-            input: individualData,
-          }
-        );
-        console.log(`✅ Individual URLs worked: ${training.id}`);
-      }
+    if (dbError || !dataset) {
+      console.error('Database error:', dbError)
+      return NextResponse.json(
+        { error: 'Failed to create training record' },
+        { status: 500 }
+      )
     }
 
-    // Update dataset with training ID
-    await supabaseAdmin
-      .from("datasets")
-      .update({ 
-        training_id: training.id, 
-        model_version: destination,
-        trigger_word: "TOK"
-      })
-      .eq("id", dataset.id);
+    console.log(`✅ Created dataset record: ${dataset.id}`)
 
-    return NextResponse.json(
-      { 
-        datasetId: dataset.id, 
-        trainingId: training.id, 
-        status: "processing",
-        message: `ZIP-based training started with ${limitedImageUrls.length} images`
+    // 2. Create ZIP (time-limited operation)
+    console.log('📦 Creating ZIP file from images...')
+    const zip = new JSZip()
+    
+    // Process images with timeout protection
+    const imagePromises = imageUrls.slice(0, 10).map(async (imageUrl, index) => {
+      try {
+        console.log(`📥 Processing image ${index + 1}/10`)
+        
+        // Add timeout to individual fetch operations
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout per image
+        
+        const response = await fetch(imageUrl, { 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'AI-Training-Bot/1.0'
+          }
+        })
+        
+        clearTimeout(timeoutId)
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        
+        const imageBuffer = await response.arrayBuffer()
+        const filename = `image_${String(index + 1).padStart(3, '0')}.jpg`
+        zip.file(filename, imageBuffer)
+        
+        return { success: true, index }
+      } catch (error) {
+        console.warn(`⚠️ Failed to process image ${index + 1}:`, getErrorMessage(error))
+        return { success: false, index, error: getErrorMessage(error) }
+      }
+    })
+
+    // Wait for all images with overall timeout
+    const results = await Promise.allSettled(imagePromises)
+    const successfulImages = results.filter(r => r.status === 'fulfilled' && r.value.success).length
+    
+    if (successfulImages < 8) {
+      throw new Error(`Only ${successfulImages}/10 images processed successfully. Need at least 8.`)
+    }
+
+    console.log(`✅ Successfully processed ${successfulImages}/10 images`)
+
+    // 3. Generate ZIP buffer (quick operation)
+    console.log('🔄 Generating ZIP buffer...')
+    const zipBuffer = await zip.generateAsync({ 
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    })
+    
+    const zipSizeMB = zipBuffer.length / (1024 * 1024)
+    console.log(`✅ ZIP created: ${zipBuffer.length} bytes (${zipSizeMB.toFixed(2)}MB)`)
+
+    // 4. Upload ZIP to Replicate (quick operation)
+    console.log('📤 Uploading ZIP to Replicate...')
+    const formData = new FormData()
+    formData.append('content', new Blob([zipBuffer]), 'training_images.zip')
+    
+    const uploadResponse = await fetch('https://api.replicate.com/v1/files', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
       },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("💥 ZIP training error:", err);
+      body: formData,
+    })
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadData = await uploadResponse.json()
+    const zipUrl = uploadData.download_url || uploadData.url
+    console.log(`✅ ZIP uploaded: ${zipUrl}`)
+
+    // 5. Start training (quick trigger - doesn't wait for completion)
+    console.log('🚀 Starting training...')
     
-    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const trainResponse = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        version: 'replicate/fast-flux-trainer:latest', // or use specific version
+        input: {
+          input_images: zipUrl,
+          trigger_word: 'TOK',
+          lora_type: subjectType,
+          steps: 1000
+        },
+        webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/train/webhook`,
+        webhook_events_filter: ["completed"]
+      }),
+    })
+
+    if (!trainResponse.ok) {
+      const errorText = await trainResponse.text()
+      throw new Error(`Training start failed: ${trainResponse.status} - ${errorText}`)
+    }
+
+    const trainData = await trainResponse.json()
+    console.log(`✅ Training started: ${trainData.id}`)
+
+    // 6. Update database with training ID (quick operation)
+    // 🔧 FIX: Don't save fake model names, let webhook save the real output
+    await supabaseAdmin
+      .from('datasets')
+      .update({
+        training_id: trainData.id, // This is the Replicate prediction ID
+        model_version: null, // Will be set by webhook when training completes
+        training_status: 'training',
+        zip_url: zipUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', dataset.id)
+
+    // 7. Return immediately (don't wait for training to complete)
+    return NextResponse.json({
+      success: true,
+      trainingId: trainData.id, // Return the Replicate prediction ID
+      datasetId: dataset.id,
+      message: `Training started for "${subjectName}"`,
+      estimatedTime: '20-40 minutes',
+      zipSizeMB: zipSizeMB.toFixed(2)
+    })
+
+  } catch (error) {
+    console.error('💥 Training start error:', getErrorMessage(error))
     
-    return NextResponse.json(
-      { 
-        error: "Failed to start ZIP training", 
-        details: errorMessage,
-      }, 
-      { status: 500 }
-    );
+    return NextResponse.json({
+      error: 'Failed to start training',
+      details: getErrorMessage(error),
+      suggestion: 'Check image URLs and try again'
+    }, { status: 500 })
   }
 }
-
-export const runtime = "nodejs";
-export const maxDuration = 300;
