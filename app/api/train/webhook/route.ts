@@ -9,7 +9,9 @@ export async function POST(request: NextRequest) {
       id: body.id,
       status: body.status,
       hasOutput: !!body.output,
-      hasError: !!body.error
+      hasError: !!body.error,
+      outputType: typeof body.output,
+      rawOutput: body.output // Log the raw output to see format
     })
 
     const trainingId = body.id
@@ -47,30 +49,63 @@ export async function POST(request: NextRequest) {
       console.log('✅ Training completed successfully')
       
       if (output) {
-        console.log('📋 Training output received:', typeof output, output)
+        console.log('📋 Training output received:', {
+          type: typeof output,
+          value: output,
+          stringified: JSON.stringify(output)
+        })
         
-        // 🔧 FIX: Save the actual model output from Replicate
-        // This could be a LoRA model reference, file URL, or model version
-        let modelVersion = output
+        // 🔧 IMPROVED: Handle different output formats from fast-flux-trainer
+        let modelVersion = null
         
-        // Handle different output formats
-        if (typeof output === 'object') {
-          // If output is an object, try to extract the model reference
-          if (output.model || output.model_version) {
-            modelVersion = output.model || output.model_version
+        if (typeof output === 'string') {
+          // Direct string output (most common)
+          modelVersion = output
+          console.log('📝 Using string output as model version:', modelVersion)
+        } else if (Array.isArray(output)) {
+          // Array output - use first item
+          modelVersion = output[0]
+          console.log('📝 Using first array item as model version:', modelVersion)
+        } else if (typeof output === 'object' && output !== null) {
+          // Object output - try different possible fields
+          if (output.model) {
+            modelVersion = output.model
+          } else if (output.model_version) {
+            modelVersion = output.model_version
+          } else if (output.version) {
+            modelVersion = output.version
           } else if (output.url) {
             modelVersion = output.url
+          } else if (output.destination) {
+            modelVersion = output.destination
           } else {
-            // Fallback: stringify the object
-            modelVersion = JSON.stringify(output)
+            // Try to find any string field that looks like a model reference
+            const possibleFields = Object.values(output).filter(
+              value => typeof value === 'string' && 
+              (value.includes('/') || value.includes(':'))
+            )
+            if (possibleFields.length > 0) {
+              modelVersion = possibleFields[0]
+            } else {
+              // Last resort: stringify the entire object
+              modelVersion = JSON.stringify(output)
+            }
           }
+          console.log('📝 Extracted from object:', modelVersion)
         }
         
-        updateData.model_version = modelVersion
-        updateData.training_status = 'completed'
-        updateData.completed_at = new Date().toISOString()
-        
-        console.log(`💾 Saving model version: ${modelVersion}`)
+        if (modelVersion) {
+          updateData.model_version = modelVersion
+          updateData.training_status = 'completed'
+          updateData.completed_at = new Date().toISOString()
+          updateData.error_message = null // Clear any previous errors
+          
+          console.log(`💾 Saving model version: "${modelVersion}"`)
+        } else {
+          console.warn('⚠️ Could not extract model version from output')
+          updateData.training_status = 'failed'
+          updateData.error_message = `Training completed but could not parse model output: ${JSON.stringify(output)}`
+        }
         
       } else {
         console.warn('⚠️ Training succeeded but no output received')
@@ -86,21 +121,22 @@ export async function POST(request: NextRequest) {
       
       if (logs) {
         console.log('📜 Training logs:', logs)
-        updateData.logs = logs
+        // Store logs as JSON string if it's an object
+        updateData.logs = typeof logs === 'object' ? JSON.stringify(logs) : logs
       }
       
     } else if (status === 'processing' || status === 'starting') {
       console.log(`⏳ Training in progress: ${status}`)
       
-      updateData.training_status = status
+      updateData.training_status = 'processing' // Normalize to 'processing'
       
       if (logs) {
-        updateData.logs = logs
+        updateData.logs = typeof logs === 'object' ? JSON.stringify(logs) : logs
       }
       
     } else {
       console.log(`📊 Unknown status: ${status}`)
-      updateData.training_status = status
+      updateData.training_status = 'processing' // Default to processing for unknown statuses
     }
 
     // Update the database
@@ -114,11 +150,15 @@ export async function POST(request: NextRequest) {
       throw updateError
     }
 
-    console.log(`✅ Successfully updated dataset ${dataset.id} with status: ${updateData.training_status}`)
+    console.log(`✅ Successfully updated dataset ${dataset.id}:`, {
+      status: updateData.training_status,
+      modelVersion: updateData.model_version,
+      hasError: !!updateData.error_message
+    })
 
     // Log the final state for debugging
     if (updateData.model_version) {
-      console.log(`🎯 Model ready: ${updateData.model_version}`)
+      console.log(`🎯 Model ready for generation: "${updateData.model_version}"`)
     }
 
     return NextResponse.json({ 
@@ -127,7 +167,12 @@ export async function POST(request: NextRequest) {
       datasetId: dataset.id,
       subjectName: dataset.subject_name,
       status: updateData.training_status,
-      modelVersion: updateData.model_version || null
+      modelVersion: updateData.model_version || null,
+      debugInfo: {
+        originalOutput: output,
+        extractedModelVersion: updateData.model_version,
+        outputType: typeof output
+      }
     })
 
   } catch (error) {
@@ -145,6 +190,9 @@ export async function GET() {
   return NextResponse.json({
     message: 'Training webhook endpoint',
     status: 'active',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    note: 'POST training data here from Replicate webhooks'
   })
 }
+
+export const runtime = 'nodejs'
