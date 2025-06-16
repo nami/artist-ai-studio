@@ -111,9 +111,9 @@ export async function POST(request: NextRequest) {
     const { imageUrls, subjectName, subjectType, userId } = await request.json()
     
     // Validate inputs quickly
-    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length !== 10) {
+    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length < 10 || imageUrls.length > 15) {
       return NextResponse.json(
-        { error: 'Exactly 10 image URLs required' },
+        { error: 'Between 10-15 image URLs required' },
         { status: 400 }
       )
     }

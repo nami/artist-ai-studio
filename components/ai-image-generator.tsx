@@ -48,6 +48,102 @@ interface AnimatedElement {
   animationDuration: number;
 }
 
+// 🎯 Dynamic prompting guides based on model type
+const PROMPTING_GUIDES = {
+  person: {
+    title: "Person Model Prompting",
+    description: "Your model learned a specific person's appearance",
+    structure: "{trigger}, {action/pose}, {setting}, {style}",
+    examples: [
+      { prompt: "professional headshot, business attire, office background", emoji: "💼" },
+      { prompt: "casual portrait, smiling, outdoor park setting", emoji: "😊" },
+      { prompt: "artistic photo, dramatic lighting, black and white", emoji: "🎭" },
+      { prompt: "sitting at a desk, working on laptop, modern office", emoji: "💻" },
+      { prompt: "walking in a city street, wearing a jacket, sunny day", emoji: "🚶" }
+    ],
+    tips: [
+      "Always start with your trigger word",
+      "Describe the pose or action clearly", 
+      "Add setting/background details",
+      "Specify photo style or lighting"
+    ],
+    avoid: [
+      "Don't use other people's names",
+      "Avoid conflicting identity descriptions",
+      "Keep poses physically realistic"
+    ]
+  },
+  pet: {
+    title: "Pet Model Prompting", 
+    description: "Your model learned your pet's unique features",
+    structure: "{trigger}, {pose/action}, {setting}, {style}",
+    examples: [
+      { prompt: "sitting on a couch, indoor living room, natural lighting", emoji: "🛋️" },
+      { prompt: "lying in grass, outdoor garden, sunny day", emoji: "🌱" },
+      { prompt: "playing with a toy, carpet floor, candid photo", emoji: "🎾" },
+      { prompt: "sleeping on a bed, cozy bedroom, soft lighting", emoji: "😴" },
+      { prompt: "running in a park, action shot, motion blur background", emoji: "🏃" }
+    ],
+    tips: [
+      "Start with your trigger word",
+      "Describe natural pet behaviors",
+      "Include environment details", 
+      "Specify photo quality/style"
+    ],
+    avoid: [
+      "Don't change breed characteristics",
+      "Avoid impossible poses", 
+      "Don't add conflicting animal features"
+    ]
+  },
+  object: {
+    title: "Object Model Prompting",
+    description: "Your model learned a specific object's appearance", 
+    structure: "{trigger}, {context/use}, {setting}, {style}",
+    examples: [
+      { prompt: "on a wooden table, kitchen setting, product photography", emoji: "📸" },
+      { prompt: "being used by a person, outdoor setting, lifestyle photo", emoji: "🏞️" },
+      { prompt: "against white background, studio lighting, commercial shot", emoji: "💡" },
+      { prompt: "in natural environment, contextual usage, documentary style", emoji: "📱" },
+      { prompt: "macro close-up, detailed texture, artistic photography", emoji: "🔍" }
+    ],
+    tips: [
+      "Always include your trigger word",
+      "Show object in realistic contexts",
+      "Describe lighting and setting",
+      "Specify photography style"
+    ],
+    avoid: [
+      "Don't change core object features",
+      "Avoid impossible physics",
+      "Don't mix with incompatible objects"
+    ]
+  },
+  style: {
+    title: "Art Style Prompting",
+    description: "Your model learned visual style characteristics",
+    structure: "{trigger}, {subject}, {composition}, {mood}",
+    examples: [
+      { prompt: "a person working at computer, office scene, professional mood", emoji: "💼" },
+      { prompt: "a team meeting, conference room, collaborative atmosphere", emoji: "👥" },
+      { prompt: "a woman giving presentation, modern workspace, confident energy", emoji: "📊" },
+      { prompt: "people collaborating, open office, creative environment", emoji: "🎨" },
+      { prompt: "business people shaking hands, corporate setting, success theme", emoji: "🤝" }
+    ],
+    tips: [
+      "Put trigger word first",
+      "Describe any subject/scene",
+      "Focus on composition", 
+      "The style will be applied automatically"
+    ],
+    avoid: [
+      "Don't specify conflicting art styles",
+      "Avoid overly detailed style descriptions",
+      "Let the model handle the visual style"
+    ]
+  }
+};
+
 // Copyright-free artistic styles
 const STYLE_PRESETS = [
   {
@@ -94,66 +190,6 @@ const STYLE_PRESETS = [
   },
 ]
 
-// Copyright-free prompt templates
-const PROMPT_TEMPLATES: PromptTemplate[] = [
-  {
-    id: "1",
-    name: "Mountain Landscape",
-    prompt: "Serene mountain landscape with rolling hills, clear sky, and natural lighting",
-    category: "Nature",
-    emoji: "🏔️",
-  },
-  {
-    id: "2",
-    name: "Abstract Composition",
-    prompt: "Abstract geometric composition with flowing shapes and vibrant colors",
-    category: "Abstract",
-    emoji: "🎨",
-  },
-  {
-    id: "3",
-    name: "Still Life",
-    prompt: "Simple still life arrangement with fruits, pottery, and natural lighting",
-    category: "Still Life",
-    emoji: "🍎",
-  },
-  {
-    id: "4",
-    name: "Forest Scene",
-    prompt: "Peaceful forest clearing with tall trees, dappled sunlight, and moss-covered ground",
-    category: "Nature",
-    emoji: "🌲",
-  },
-  {
-    id: "5",
-    name: "Architectural Study",
-    prompt: "Modern architectural building with clean lines, glass surfaces, and geometric design",
-    category: "Architecture",
-    emoji: "🏢",
-  },
-  {
-    id: "6",
-    name: "Ocean Waves",
-    prompt: "Dynamic ocean waves crashing against rocky coastline with dramatic sky",
-    category: "Nature",
-    emoji: "🌊",
-  },
-  {
-    id: "7",
-    name: "Flower Garden",
-    prompt: "Colorful flower garden with blooming wildflowers and soft natural lighting",
-    category: "Nature",
-    emoji: "🌸",
-  },
-  {
-    id: "8",
-    name: "Desert Dunes",
-    prompt: "Vast desert landscape with sand dunes, clear blue sky, and warm golden hour lighting",
-    category: "Landscape",
-    emoji: "🏜️",
-  },
-]
-
 export default function AIImageGenerator({ onBack, editedImage }: AIImageGeneratorProps) {
   const [prompt, setPrompt] = useState("")
   const [selectedStyle, setSelectedStyle] = useState("none")
@@ -172,9 +208,6 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
   const [animatedElements, setAnimatedElements] = useState<AnimatedElement[]>([])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Mock user for demo
-  // const mockUser = { id: "demo-user" }
 
   // Real auth hook
   const { user, loading: authLoading } = useAuth()
@@ -299,8 +332,19 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
     }
   }, [prompt, selectedStyle, selectedModel, steps, guidance, seed, isGenerating, trainedModels, user?.id])
 
-  const handleTemplateSelect = (template: PromptTemplate) => {
-    setPrompt(template.prompt)
+  // 🔥 NEW: Handle template selection with trigger word
+  const handleTemplateSelect = (example: { prompt: string; emoji: string }) => {
+    const selectedModelData = trainedModels.find(m => m.id === selectedModel)
+    let finalPrompt = example.prompt
+    
+    // Add trigger word if using custom model
+    if (selectedModelData && selectedModelData.model_version) {
+      // Extract trigger word from model_version (assuming format like "username/trigger-word:version")
+      const triggerWord = selectedModelData.model_version.split('/')[1]?.split(':')[0] || selectedModelData.subject_name.toLowerCase().replace(/\s+/g, '')
+      finalPrompt = `${triggerWord}, ${example.prompt}`
+    }
+    
+    setPrompt(finalPrompt)
     setIsTemplatesOpen(false)
     textareaRef.current?.focus()
   }
@@ -327,6 +371,16 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
 
   const selectedStyleData = STYLE_PRESETS.find((style) => style.id === selectedStyle)
   const selectedModelData = trainedModels.find(m => m.id === selectedModel)
+
+  // 🔥 NEW: Get prompting guide for selected model
+  const promptingGuide = selectedModelData && selectedModelData.subject_type 
+    ? PROMPTING_GUIDES[selectedModelData.subject_type as keyof typeof PROMPTING_GUIDES] 
+    : null
+
+  // 🔥 NEW: Extract trigger word
+  const triggerWord = selectedModelData?.model_version 
+    ? selectedModelData.model_version.split('/')[1]?.split(':')[0] || selectedModelData.subject_name.toLowerCase().replace(/\s+/g, '')
+    : null
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -503,13 +557,26 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                 </div>
               )}
 
-              {selectedModel !== "base" && selectedModelData && (
+              {/* 🔥 NEW: Trigger Word Display */}
+              {selectedModel !== "base" && selectedModelData && triggerWord && (
                 <div className="mt-3 p-3 bg-gradient-to-r from-purple-900/50 to-pink-900/30 border border-purple-400/30 rounded-lg">
-                  <div className="text-purple-400 font-mono text-sm font-bold">
-                    ✨ Using Custom Model: {selectedModelData.subject_name}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-purple-400 font-mono text-sm font-bold">
+                      ✨ Using Custom Model: {selectedModelData.subject_name}
+                    </div>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(triggerWord)}
+                      className="bg-purple-800/50 border border-purple-400/50 text-purple-300 hover:bg-purple-700/50 font-mono text-xs px-2 py-1 rounded transition-all"
+                      title="Copy trigger word"
+                    >
+                      📋 COPY
+                    </button>
                   </div>
-                  <div className="text-gray-300 text-xs mt-1">
-                    This will generate images with the style/appearance of your trained {selectedModelData.subject_type} model
+                  <div className="text-gray-300 text-xs mb-2">
+                    <strong>Trigger Word:</strong> <span className="bg-black/50 px-2 py-1 rounded font-mono text-yellow-400">{triggerWord}</span>
+                  </div>
+                  <div className="text-gray-400 text-xs">
+                    Always include "{triggerWord}" in your prompts to activate this model
                   </div>
                 </div>
               )}
@@ -546,46 +613,125 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                 ref={textareaRef}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="✨ Describe your artistic vision... mountain landscape, abstract art, still life composition..."
+                placeholder={selectedModel === "base" 
+                  ? "✨ Describe your artistic vision... mountain landscape, abstract art, still life composition..."
+                  : `✨ Start with "${triggerWord}" then describe your scene... ${triggerWord}, sitting in a garden, natural lighting...`
+                }
                 className="w-full min-h-[100px] sm:min-h-[120px] bg-gray-800/50 border-2 border-purple-400/30 text-white placeholder-gray-400 font-mono resize-none focus:border-purple-400 focus:ring-purple-400/20 focus:ring-4 transition-all text-sm sm:text-base rounded-lg p-3"
                 maxLength={500}
               />
+
+              {/* 🔥 NEW: Trigger word warning */}
+              {selectedModel !== "base" && triggerWord && !prompt.includes(triggerWord) && prompt.trim() && (
+                <div className="mt-2 p-2 bg-yellow-900/30 border border-yellow-400/50 rounded-lg">
+                  <div className="text-yellow-400 font-mono text-xs flex items-center gap-2">
+                    ⚠️ Don't forget to include "{triggerWord}" in your prompt!
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-2 mt-4">
                 <button
                   onClick={() => setIsTemplatesOpen(!isTemplatesOpen)}
                   className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono text-xs hover:scale-105 transition-transform px-3 py-2 rounded-lg"
                 >
-                  💡 ART TEMPLATES
+                  {promptingGuide ? `💡 ${promptingGuide.title.toUpperCase()}` : '💡 ART TEMPLATES'}
                 </button>
               </div>
 
+              {/* 🔥 REPLACED: Dynamic Prompting Guide */}
               {isTemplatesOpen && (
                 <div className="mt-4">
                   <div className="bg-gradient-to-br from-gray-800/50 to-purple-800/30 border-2 border-purple-400/30 rounded-lg p-3 sm:p-4 backdrop-blur-sm">
-                    <h4 className="text-xs sm:text-sm font-mono text-purple-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      ✨ INSPIRATION VAULT
-                    </h4>
-                    <div className="max-h-48 sm:max-h-60 overflow-y-auto">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                        {PROMPT_TEMPLATES.map((template) => (
-                          <button
-                            key={template.id}
-                            onClick={() => handleTemplateSelect(template)}
-                            className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:scale-105"
-                          >
-                            <div className="flex items-center gap-2 mb-1 sm:mb-2">
-                              <span className="text-base sm:text-lg">{template.emoji}</span>
-                              <div className="text-xs text-purple-400 font-mono uppercase">{template.category}</div>
+                    {promptingGuide ? (
+                      <>
+                        <h4 className="text-xs sm:text-sm font-mono text-purple-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+                          ✨ {promptingGuide.title}
+                        </h4>
+                        
+                        <div className="mb-4 p-3 bg-black/30 rounded-lg border border-purple-400/20">
+                          <div className="text-xs text-cyan-400 font-mono mb-1">📋 STRUCTURE:</div>
+                          <div className="text-xs text-white font-mono bg-gray-800/50 p-2 rounded">
+                            {promptingGuide.structure}
+                          </div>
+                        </div>
+
+                        <div className="max-h-48 sm:max-h-60 overflow-y-auto">
+                          <div className="grid grid-cols-1 gap-2 mb-4">
+                            <div className="text-xs text-green-400 font-mono mb-2">✅ EXAMPLE PROMPTS:</div>
+                            {promptingGuide.examples.map((example, index) => (
+                              <button
+                                key={index}
+                                onClick={() => handleTemplateSelect(example)}
+                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:scale-105"
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-base">{example.emoji}</span>
+                                  <div className="text-xs text-purple-400 font-mono">
+                                    {triggerWord && `${triggerWord}, `}{example.prompt}
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <div className="text-green-400 font-mono mb-2">✅ BEST PRACTICES:</div>
+                              <ul className="space-y-1">
+                                {promptingGuide.tips.map((tip, index) => (
+                                  <li key={index} className="text-gray-300 flex items-start gap-1">
+                                    <span className="text-green-400">•</span>
+                                    {tip}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
-                            <div className="text-xs sm:text-sm text-white font-mono font-bold mb-1">
-                              {template.name}
+                            <div>
+                              <div className="text-red-400 font-mono mb-2">❌ AVOID:</div>
+                              <ul className="space-y-1">
+                                {promptingGuide.avoid.map((avoid, index) => (
+                                  <li key={index} className="text-gray-400 flex items-start gap-1">
+                                    <span className="text-red-400">•</span>
+                                    {avoid}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
-                            <div className="text-xs text-gray-400 line-clamp-2">{template.prompt}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <h4 className="text-xs sm:text-sm font-mono text-purple-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+                          ✨ GENERAL ART TEMPLATES
+                        </h4>
+                        <div className="max-h-48 sm:max-h-60 overflow-y-auto">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                            {[
+                              { prompt: "Serene mountain landscape with rolling hills, clear sky, and natural lighting", emoji: "🏔️" },
+                              { prompt: "Abstract geometric composition with flowing shapes and vibrant colors", emoji: "🎨" },
+                              { prompt: "Simple still life arrangement with fruits, pottery, and natural lighting", emoji: "🍎" },
+                              { prompt: "Peaceful forest clearing with tall trees, dappled sunlight, and moss-covered ground", emoji: "🌲" },
+                              { prompt: "Modern architectural building with clean lines, glass surfaces, and geometric design", emoji: "🏢" },
+                              { prompt: "Dynamic ocean waves crashing against rocky coastline with dramatic sky", emoji: "🌊" }
+                            ].map((template, index) => (
+                              <button
+                                key={index}
+                                onClick={() => handleTemplateSelect(template)}
+                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:scale-105"
+                              >
+                                <div className="flex items-center gap-2 mb-1 sm:mb-2">
+                                  <span className="text-base sm:text-lg">{template.emoji}</span>
+                                  <div className="text-xs text-purple-400 font-mono uppercase">General</div>
+                                </div>
+                                <div className="text-xs text-gray-400 line-clamp-2">{template.prompt}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
