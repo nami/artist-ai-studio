@@ -121,6 +121,11 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   const [result, setResult] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
   
+  // 🔥 NEW: Better editing workflow state
+  const [editHistory, setEditHistory] = useState<string[]>([]);
+  const [currentEditIndex, setCurrentEditIndex] = useState(0);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  
   // Advanced options
   const [editStrength, setEditStrength] = useState(75);
   const [maskBlur, setMaskBlur] = useState(10);
@@ -189,6 +194,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         setOriginalImageData(imageData);
         setImageUrl(imageData.imageUrl);
         
+        // 🔥 NEW: Initialize edit history with original image
+        setEditHistory([imageData.imageUrl]);
+        setCurrentEditIndex(0);
+        
         // Pre-fill some editing context
         setPrompt(`Edit this ${imageData.style !== 'none' ? imageData.style + ' style ' : ''}image: `);
         
@@ -198,12 +207,18 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         sessionStorage?.removeItem('editImageData');
       } else {
         // Fallback to placeholder if no data
-        setImageUrl('https://picsum.photos/800/600');
+        const placeholderUrl = 'https://picsum.photos/800/600';
+        setImageUrl(placeholderUrl);
+        setEditHistory([placeholderUrl]);
+        setCurrentEditIndex(0);
         showToast('No image data found, using placeholder for demo', 'info');
       }
     } catch (error) {
       console.error('Error loading image data:', error);
-      setImageUrl('https://picsum.photos/800/600');
+      const fallbackUrl = 'https://picsum.photos/800/600';
+      setImageUrl(fallbackUrl);
+      setEditHistory([fallbackUrl]);
+      setCurrentEditIndex(0);
       showToast('Failed to load image data', 'error');
     }
   }, [isClient]);
@@ -307,28 +322,144 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
+  // 🔥 UPDATED: Real API integration with better workflow
   const processEdit = async () => {
     if (!prompt.trim()) {
       showToast('Please describe what you want to change', 'error');
+      return;
+    }
+
+    if (!maskCanvasRef.current) {
+      showToast('Please select an area to edit', 'error');
       return;
     }
     
     setIsProcessing(true);
     showToast('Processing edit with ControlNet...', 'info');
     
-    setTimeout(() => {
-      // For demo, just use a slightly modified version
-      const editedUrl = `${imageUrl}?edited=${Date.now()}`;
-      setResult(editedUrl);
-      setIsProcessing(false);
+    try {
+      // Convert mask canvas to blob
+      const maskCanvas = maskCanvasRef.current;
+      const maskBlob = await new Promise<Blob>((resolve) => {
+        maskCanvas.toBlob((blob) => {
+          resolve(blob!);
+        }, 'image/png');
+      });
+
+      // Prepare form data
+      const formData = new FormData();
+      formData.append('imageUrl', editHistory[currentEditIndex]); // Use current image in history
+      formData.append('mask', maskBlob, 'mask.png');
+      formData.append('prompt', prompt);
+      formData.append('preservePose', preservePose.toString());
+
+      // Call your inpaint API
+      const response = await fetch('/api/inpaint', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Edit failed');
+      }
+
+      const data = await response.json();
+      setResult(data.imageUrl);
       setShowComparison(true);
+      setHasUnsavedChanges(true);
       
-      showToast('Edit completed! Your image has been enhanced with AI precision', 'success');
-    }, 3000);
+      showToast('Edit completed! Review the result and choose to accept or try again.', 'success');
+    } catch (error) {
+      console.error('Edit failed:', error);
+      showToast(`Edit failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 🔥 NEW: Accept the current edit and continue editing from the new image
+  const acceptEdit = () => {
+    if (!result) return;
+    
+    // Add the new result to edit history
+    const newHistory = [...editHistory.slice(0, currentEditIndex + 1), result];
+    setEditHistory(newHistory);
+    setCurrentEditIndex(newHistory.length - 1);
+    
+    // Update current image to the new result
+    setImageUrl(result);
+    
+    // Reset editing state
+    setResult(null);
+    setShowComparison(false);
+    setHasUnsavedChanges(false);
+    clearMask();
+    setPrompt('');
+    
+    showToast('Edit accepted! You can continue editing from this new version.', 'success');
+  };
+
+  // 🔥 NEW: Reject the current edit and continue with the original
+  const rejectEdit = () => {
+    setResult(null);
+    setShowComparison(false);
+    setHasUnsavedChanges(false);
+    clearMask();
+    
+    showToast('Edit rejected. Try a different prompt or mask area.', 'info');
+  };
+
+  // 🔥 NEW: Undo to previous version in edit history
+  const undoEdit = () => {
+    if (currentEditIndex > 0) {
+      const newIndex = currentEditIndex - 1;
+      setCurrentEditIndex(newIndex);
+      setImageUrl(editHistory[newIndex]);
+      setResult(null);
+      setShowComparison(false);
+      setHasUnsavedChanges(false);
+      clearMask();
+      
+      showToast('Undid last edit', 'success');
+    }
+  };
+
+  // 🔥 NEW: Redo to next version in edit history
+  const redoEdit = () => {
+    if (currentEditIndex < editHistory.length - 1) {
+      const newIndex = currentEditIndex + 1;
+      setCurrentEditIndex(newIndex);
+      setImageUrl(editHistory[newIndex]);
+      setResult(null);
+      setShowComparison(false);
+      setHasUnsavedChanges(false);
+      clearMask();
+      
+      showToast('Redid edit', 'success');
+    }
+  };
+
+  // 🔥 NEW: Reset to original image
+  const resetToOriginal = () => {
+    if (editHistory.length > 0) {
+      setCurrentEditIndex(0);
+      setImageUrl(editHistory[0]);
+      setResult(null);
+      setShowComparison(false);
+      setHasUnsavedChanges(false);
+      clearMask();
+      setPrompt('');
+      
+      showToast('Reset to original image', 'success');
+    }
   };
 
   const handleSaveAndReturn = () => {
-    if (!result || !originalImageData) {
+    // Use the current image in history (or result if available)
+    const finalImageUrl = result || editHistory[currentEditIndex];
+    
+    if (!finalImageUrl || !originalImageData) {
       showToast('No edited image to save', 'error');
       return;
     }
@@ -337,8 +468,8 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     const editedImageData = {
       ...originalImageData,
       id: Math.random().toString(36).substr(2, 9),
-      imageUrl: result,
-      prompt: `${originalImageData.prompt} (edited: ${prompt})`,
+      imageUrl: finalImageUrl,
+      prompt: `${originalImageData.prompt} (edited: ${prompt || 'modifications applied'})`,
       timestamp: new Date().toISOString(), // Store as ISO string for sessionStorage
     };
     
@@ -898,18 +1029,40 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
               </div>
             </div>
 
-            {/* Results */}
+            {/* Results & Workflow */}
             {result && (
               <div className="bg-gradient-to-br from-black/60 via-emerald-900/20 to-green-900/20 backdrop-blur-sm border-2 border-emerald-400/50 rounded-xl p-4">
                 <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  RESULT ACTIONS
+                  EDIT RESULT
                 </Label>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-mono text-white">SHOW COMPARISON</Label>
                     <Switch checked={showComparison} onCheckedChange={setShowComparison} />
+                  </div>
+
+                  {/* 🔥 NEW: Edit workflow controls */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button 
+                      onClick={acceptEdit}
+                      size="sm" 
+                      className="w-full font-mono text-xs bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400"
+                    >
+                      <Check className="w-3 h-3 mr-1" />
+                      ACCEPT EDIT
+                    </Button>
+                    
+                    <Button 
+                      onClick={rejectEdit}
+                      variant="outline"
+                      size="sm" 
+                      className="w-full font-mono text-xs border-red-400/50 text-red-300 hover:bg-red-500/20"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      REJECT & RETRY
+                    </Button>
                   </div>
 
                   <Button onClick={downloadResult} variant="outline" size="sm" className="w-full font-mono text-xs">
@@ -935,11 +1088,53 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     <ArrowLeft className="w-3 h-3 mr-1" />
                     SAVE & RETURN TO GENERATOR
                   </Button>
+                </div>
+              </div>
+            )}
 
-                  <Button variant="outline" size="sm" className="w-full font-mono text-xs">
-                    <RefreshCw className="w-3 h-3 mr-1" />
-                    CONTINUE EDITING
-                  </Button>
+            {/* 🔥 NEW: Edit History & Undo/Redo Controls */}
+            {editHistory.length > 1 && !result && (
+              <div className="bg-gradient-to-br from-black/60 via-blue-900/20 to-indigo-900/20 backdrop-blur-sm border-2 border-blue-400/50 rounded-xl p-4">
+                <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-blue-400" />
+                  EDIT HISTORY
+                </Label>
+
+                <div className="space-y-3">
+                  <div className="text-xs font-mono text-blue-300 text-center">
+                    VERSION {currentEditIndex + 1} OF {editHistory.length}
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button 
+                      onClick={undoEdit}
+                      disabled={currentEditIndex === 0}
+                      variant="outline"
+                      size="sm" 
+                      className="font-mono text-xs"
+                    >
+                      ← UNDO
+                    </Button>
+                    
+                    <Button 
+                      onClick={resetToOriginal}
+                      variant="outline"
+                      size="sm" 
+                      className="font-mono text-xs"
+                    >
+                      ORIGINAL
+                    </Button>
+                    
+                    <Button 
+                      onClick={redoEdit}
+                      disabled={currentEditIndex === editHistory.length - 1}
+                      variant="outline"
+                      size="sm" 
+                      className="font-mono text-xs"
+                    >
+                      REDO →
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -954,7 +1149,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 <div>1. SELECT area to edit</div>
                 <div>2. DESCRIBE changes</div>
                 <div>3. APPLY edit with AI</div>
+                <div>4. ACCEPT or REJECT result</div>
+                <div>5. CONTINUE editing or SAVE</div>
                 <div className="text-cyan-300 mt-2">🎯 ControlNet preserves pose!</div>
+                <div className="text-yellow-300">⚡ Iterative editing workflow</div>
               </div>
             </div>
           </div>

@@ -254,6 +254,38 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
     }));
     
     setAnimatedElements(elements);
+
+    // Check for edited image returning from editor
+    if (typeof window !== 'undefined' && sessionStorage) {
+      const editedImageReturn = sessionStorage.getItem('editedImageReturn')
+      if (editedImageReturn) {
+        try {
+          const editedImage = JSON.parse(editedImageReturn)
+          // Convert the edited image to GeneratedImage format
+          const newEditedImage: GeneratedImage = {
+            id: editedImage.id,
+            prompt: editedImage.prompt,
+            style: editedImage.style || 'none',
+            imageUrl: editedImage.imageUrl,
+            timestamp: editedImage.timestamp,
+            modelId: editedImage.modelId,
+            modelName: editedImage.modelName,
+            settings: editedImage.settings || { steps: 20, guidance: 7.5, seed: 0 }
+          }
+          
+          // Add to generated images and set as current
+          setGeneratedImages(prev => [newEditedImage, ...prev])
+          setCurrentImage(newEditedImage)
+          
+          // Clear the return data
+          sessionStorage.removeItem('editedImageReturn')
+          
+          console.log('Edited image loaded successfully')
+        } catch (error) {
+          console.error('Failed to load edited image:', error)
+        }
+      }
+    }
   }, [])
 
   const handleGenerate = useCallback(async () => {
@@ -367,6 +399,30 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  const editImage = (imageToEdit: GeneratedImage | null) => {
+    if (!imageToEdit) return
+    
+    // Prepare image data for the editor
+    const editImageData = {
+      id: imageToEdit.id,
+      prompt: imageToEdit.prompt,
+      style: imageToEdit.style,
+      imageUrl: imageToEdit.imageUrl,
+      timestamp: imageToEdit.timestamp, // Already a string, editor will convert to Date
+      settings: imageToEdit.settings,
+      modelId: imageToEdit.modelId,
+      modelName: imageToEdit.modelName
+    }
+    
+    // Store in sessionStorage for the editor
+    if (typeof window !== 'undefined' && sessionStorage) {
+      sessionStorage.setItem('editImageData', JSON.stringify(editImageData))
+      
+      // Navigate to edit page
+      window.location.href = '/edit'
+    }
   }
 
   const selectedStyleData = STYLE_PRESETS.find((style) => style.id === selectedStyle)
@@ -944,6 +1000,23 @@ export default function AIImageGenerator({ onBack, editedImage }: AIImageGenerat
                       <span>🕐</span>
                       {formatTimestamp(currentImage.timestamp)}
                     </div>
+                    <div className="bg-purple-900/30 border border-purple-400/30 rounded-lg p-2 mb-3">
+                      <div className="text-purple-400 font-mono text-xs mb-1 flex items-center gap-1">
+                        ✏️ EDIT OPTIONS
+                      </div>
+                      <div className="text-gray-300 text-xs">
+                        • Inpaint: Fill/replace areas<br/>
+                        • Add: hats, glasses, objects<br/>
+                        • Change: colors, backgrounds<br/>
+                        • Pose preservation with ControlNet
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => editImage(currentImage)}
+                      className="w-full bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg mb-2"
+                    >
+                      ✏️ EDIT IMAGE
+                    </button>
                     <button
                       onClick={() => downloadImage(currentImage)}
                       className="w-full bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 text-green-300 hover:bg-green-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg"
