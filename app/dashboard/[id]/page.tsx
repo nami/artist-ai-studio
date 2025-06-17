@@ -414,7 +414,9 @@ export default function TrainingDashboardPage() {
               </div>
               <div>
                 <span className="text-gray-400 font-mono text-sm uppercase">Type:</span>
-                <div className="text-pink-400 font-mono text-lg font-bold">{dataset.subject_type}</div>
+                <div className="text-pink-400 font-mono text-lg font-bold">
+                  {dataset.subject_type.charAt(0).toUpperCase() + dataset.subject_type.slice(1)}
+                </div>
               </div>
               <div>
                 <span className="text-gray-400 font-mono text-sm uppercase">Images:</span>

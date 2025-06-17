@@ -658,13 +658,13 @@ export default function AIImageGenerator({
                 NEURAL NET ONLINE
               </div>
             </div>
+            <button
+              onClick={onBack}
+              className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2 hover:scale-105 transition-transform text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 rounded-md"
+            >
+              ← BACK TO TRAINING
+            </button>
           </div>
-          <button
-            onClick={onBack}
-            className="bg-blue-900/80 border-2 border-blue-400/50 text-blue-300 hover:bg-blue-800/80 font-mono uppercase tracking-wide backdrop-blur-sm flex items-center gap-2 hover:scale-105 transition-transform text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 rounded-md"
-          >
-            ← BACK TO TRAINING
-          </button>
         </div>
 
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -735,7 +735,18 @@ export default function AIImageGenerator({
                   {trainedModels.map((model) => (
                     <button
                       key={model.id}
-                      onClick={() => setSelectedModel(model.id)}
+                      onClick={() => {
+                        setSelectedModel(model.id);
+                        // Extract trigger word from model_version
+                        const triggerWord = model.model_version
+                          ? model.model_version.split("/")[1]?.split(":")[0] ||
+                            model.subject_name.toLowerCase().replace(/\s+/g, "")
+                          : null;
+                        // Add trigger word to prompt if it's not already there
+                        if (triggerWord && !prompt.includes(triggerWord)) {
+                          setPrompt(prompt ? `${triggerWord}, ${prompt}` : `${triggerWord}`);
+                        }
+                      }}
                       className={`w-full p-3 rounded-lg border-2 transition-all font-mono text-left ${
                         selectedModel === model.id
                           ? "border-purple-400 bg-purple-900/30 text-purple-300"
@@ -876,7 +887,7 @@ export default function AIImageGenerator({
                           </div>
                         </div>
 
-                        <div className="max-h-48 sm:max-h-60 overflow-y-auto">
+                        <div className="max-h-48 sm:max-h-60 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-purple-500 [&::-webkit-scrollbar-thumb]:to-pink-500 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-purple-400 [&::-webkit-scrollbar-thumb:hover]:to-pink-400 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
                           <div className="grid grid-cols-1 gap-2 mb-4">
                             <div className="text-xs text-green-400 font-mono mb-2">
                               ✅ EXAMPLE PROMPTS:
@@ -885,13 +896,13 @@ export default function AIImageGenerator({
                               <button
                                 key={index}
                                 onClick={() => handleTemplateSelect(example)}
-                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:scale-105"
+                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:shadow-lg hover:shadow-purple-500/20"
                               >
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-base">
+                                  <span className="text-base flex-shrink-0">
                                     {example.emoji}
                                   </span>
-                                  <div className="text-xs text-purple-400 font-mono">
+                                  <div className="text-xs text-purple-400 font-mono break-words">
                                     {triggerWord && `${triggerWord}, `}
                                     {example.prompt}
                                   </div>
@@ -978,7 +989,7 @@ export default function AIImageGenerator({
                               <button
                                 key={index}
                                 onClick={() => handleTemplateSelect(template)}
-                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:scale-105"
+                                className="text-left p-3 bg-gradient-to-br from-gray-700/50 to-gray-600/30 hover:from-purple-700/50 hover:to-pink-700/30 border-2 border-gray-600/30 hover:border-purple-400/50 rounded-lg transition-all group hover:shadow-lg hover:shadow-purple-500/20"
                               >
                                 <div className="flex items-center gap-2 mb-1 sm:mb-2">
                                   <span className="text-base sm:text-lg">
@@ -1203,155 +1214,157 @@ export default function AIImageGenerator({
           </div>
 
           {/* Right Sidebar - Image Preview */}
-          <div className="space-y-6">
-            <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-purple-500/10">
-              <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
-                ✨ MASTERPIECE PREVIEW
-              </h3>
+          <div className="lg:fixed lg:right-8 lg:w-[calc(33.333%-2rem)] lg:top-32 lg:bottom-6 lg:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-purple-500 [&::-webkit-scrollbar-thumb]:to-pink-500 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-purple-400 [&::-webkit-scrollbar-thumb:hover]:to-pink-400 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
+            <div className="space-y-6 pr-2">
+              <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-purple-500/10">
+                <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
+                  ✨ MASTERPIECE PREVIEW
+                </h3>
 
-              {currentImage ? (
-                <div className="space-y-3 sm:space-y-4">
-                  <div className="relative aspect-square bg-gray-800 rounded-lg overflow-hidden border-2 sm:border-4 border-gradient-to-r from-purple-400 to-pink-400 shadow-lg">
-                    <img
-                      src={currentImage.imageUrl || "/placeholder.svg"}
-                      alt={currentImage.prompt}
-                      className="w-full h-full object-cover"
-                      width="512"
-                      height="512"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
-                  </div>
-                  <div className="space-y-2 sm:space-y-3">
-                    <div className="text-xs font-mono text-purple-400 uppercase flex items-center gap-1 sm:gap-2">
-                      🎨 PROMPT
+                {currentImage ? (
+                  <div className="space-y-3 sm:space-y-4">
+                    <div className="relative aspect-square bg-gray-800 rounded-lg overflow-hidden border-2 sm:border-4 border-gradient-to-r from-purple-400 to-pink-400 shadow-lg">
+                      <img
+                        src={currentImage.imageUrl || "/placeholder.svg"}
+                        alt={currentImage.prompt}
+                        className="w-full h-full object-cover"
+                        width="512"
+                        height="512"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
                     </div>
-                    <div className="text-xs sm:text-sm text-white font-mono bg-gradient-to-r from-gray-800/50 to-purple-800/30 p-2 sm:p-3 rounded-lg border border-purple-400/30">
-                      {currentImage.prompt}
-                    </div>
-                    <div className="flex justify-between text-xs text-gray-400 font-mono">
-                      <span className="flex items-center gap-1">
-                        🧠 {currentImage.modelName || "Base Model"}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        🎲 {currentImage.settings.seed || "Random"}
-                      </span>
-                    </div>
-                    <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
-                      <span>🕐</span>
-                      {formatTimestamp(currentImage.timestamp)}
-                    </div>
-                    <div className="bg-purple-900/30 border border-purple-400/30 rounded-lg p-2 mb-3">
-                      <div className="text-purple-400 font-mono text-xs mb-1 flex items-center gap-1">
-                        ✏️ EDIT OPTIONS
+                    <div className="space-y-2 sm:space-y-3">
+                      <div className="text-xs font-mono text-purple-400 uppercase flex items-center gap-1 sm:gap-2">
+                        🎨 PROMPT
                       </div>
-                      <div className="text-gray-300 text-xs">
-                        • Inpaint: Fill/replace areas
-                        <br />
-                        • Add: hats, glasses, objects
-                        <br />
-                        • Change: colors, backgrounds
-                        <br />• Pose preservation with ControlNet
+                      <div className="text-xs sm:text-sm text-white font-mono bg-gradient-to-r from-gray-800/50 to-purple-800/30 p-2 sm:p-3 rounded-lg border border-purple-400/30">
+                        {currentImage.prompt}
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-400 font-mono">
+                        <span className="flex items-center gap-1">
+                          🧠 {currentImage.modelName || "Base Model"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          🎲 {currentImage.settings.seed || "Random"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
+                        <span>🕐</span>
+                        {formatTimestamp(currentImage.timestamp)}
+                      </div>
+                      <div className="bg-purple-900/30 border border-purple-400/30 rounded-lg p-2 mb-3">
+                        <div className="text-purple-400 font-mono text-xs mb-1 flex items-center gap-1">
+                          ✏️ EDIT OPTIONS
+                        </div>
+                        <div className="text-gray-300 text-xs">
+                          • Inpaint: Fill/replace areas
+                          <br />
+                          • Add: hats, glasses, objects
+                          <br />
+                          • Change: colors, backgrounds
+                          <br />• Pose preservation with ControlNet
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => editImage(currentImage)}
+                        className="w-full bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg mb-2"
+                      >
+                        ✏️ EDIT IMAGE
+                      </button>
+                      <button
+                        onClick={() => downloadImage(currentImage)}
+                        className="w-full bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 text-green-300 hover:bg-green-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg"
+                      >
+                        💾 DOWNLOAD MASTERPIECE
+                      </button>
+                      <Button
+                        onClick={() => handleSaveToGallery(currentImage.imageUrl, currentImage.prompt, currentImage.style, currentImage.settings)}
+                        disabled={isSaving}
+                        className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 font-mono text-sm py-4 uppercase tracking-wide disabled:opacity-50"
+                      >
+                        {isSaving ? (
+                          <div className="flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            SAVING...
+                          </div>
+                        ) : recentlySaved ? (
+                          <div className="flex items-center gap-2">
+                            <Heart className="w-4 h-4 text-red-400 fill-current" />
+                            SAVED TO GALLERY!
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Save className="w-4 h-4" />
+                            SAVE TO GALLERY
+                          </div>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="aspect-square bg-gradient-to-br from-gray-800/50 to-purple-800/30 rounded-lg border-2 sm:border-4 border-dashed border-purple-400/50 flex items-center justify-center">
+                    <div className="text-center text-gray-500 font-mono p-4">
+                      <div className="text-4xl mb-3 opacity-50 animate-pulse">
+                        🎨
+                      </div>
+                      <div className="text-sm sm:text-lg uppercase mb-1 sm:mb-2">
+                        Ready to Create
+                      </div>
+                      <div className="text-xs sm:text-sm">
+                        Your next masterpiece awaits...
                       </div>
                     </div>
-                    <button
-                      onClick={() => editImage(currentImage)}
-                      className="w-full bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-400/50 text-purple-300 hover:bg-purple-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg mb-2"
-                    >
-                      ✏️ EDIT IMAGE
-                    </button>
-                    <button
-                      onClick={() => downloadImage(currentImage)}
-                      className="w-full bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 text-green-300 hover:bg-green-800/50 font-mono hover:scale-105 transition-transform text-xs sm:text-sm py-2 rounded-lg"
-                    >
-                      💾 DOWNLOAD MASTERPIECE
-                    </button>
-                    <Button
-                      onClick={() => handleSaveToGallery(currentImage.imageUrl, currentImage.prompt, currentImage.style, currentImage.settings)}
-                      disabled={isSaving}
-                      className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 font-mono text-sm py-4 uppercase tracking-wide disabled:opacity-50"
-                    >
-                      {isSaving ? (
-                        <div className="flex items-center gap-2">
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          SAVING...
-                        </div>
-                      ) : recentlySaved ? (
-                        <div className="flex items-center gap-2">
-                          <Heart className="w-4 h-4 text-red-400 fill-current" />
-                          SAVED TO GALLERY!
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Save className="w-4 h-4" />
-                          SAVE TO GALLERY
-                        </div>
-                      )}
-                    </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="aspect-square bg-gradient-to-br from-gray-800/50 to-purple-800/30 rounded-lg border-2 sm:border-4 border-dashed border-purple-400/50 flex items-center justify-center">
-                  <div className="text-center text-gray-500 font-mono p-4">
-                    <div className="text-4xl mb-3 opacity-50 animate-pulse">
-                      🎨
-                    </div>
-                    <div className="text-sm sm:text-lg uppercase mb-1 sm:mb-2">
-                      Ready to Create
-                    </div>
-                    <div className="text-xs sm:text-sm">
-                      Your next masterpiece awaits...
+                )}
+              </div>
+
+              {/* Recent Generations */}
+              {generatedImages.length > 0 && (
+                <div className="bg-gradient-to-br from-black/60 via-blue-900/20 to-cyan-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/10">
+                  <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
+                    📚 CREATION ARCHIVE
+                  </h3>
+
+                  <div className="max-h-56 sm:max-h-64 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-purple-500 [&::-webkit-scrollbar-thumb]:to-pink-500 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-purple-400 [&::-webkit-scrollbar-thumb:hover]:to-pink-400 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
+                    <div className="space-y-2 sm:space-y-3">
+                      {generatedImages.map((image, index) => (
+                        <button
+                          key={image.id}
+                          onClick={() => setCurrentImage(image)}
+                          className="w-full p-2 sm:p-3 bg-gradient-to-r from-gray-800/50 to-cyan-800/30 hover:from-cyan-700/50 hover:to-blue-700/30 border-2 border-gray-600/30 hover:border-cyan-400/50 rounded-lg transition-all text-left group"
+                        >
+                          <div className="flex gap-2 sm:gap-3">
+                            <div className="relative flex-shrink-0">
+                              <img
+                                src={image.imageUrl || "/placeholder.svg"}
+                                alt={image.prompt.substring(0, 30)}
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded border-2 border-gray-600 object-cover"
+                                width="64"
+                                height="64"
+                              />
+                              <div className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-cyan-400 text-black rounded-full flex items-center justify-center text-xs font-bold shadow-md">
+                                {generatedImages.length - index}
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
+                                🕐 {formatTimestamp(image.timestamp)}
+                              </div>
+                              <div className="text-xs sm:text-sm text-white font-mono truncate">
+                                {image.prompt}
+                              </div>
+                              <div className="text-xs text-purple-400 font-mono flex items-center gap-1">
+                                🧠 {image.modelName || "Base Model"}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-
-            {/* Recent Generations */}
-            {generatedImages.length > 0 && (
-              <div className="bg-gradient-to-br from-black/60 via-blue-900/20 to-cyan-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/10">
-                <h3 className="text-base sm:text-lg font-bold font-mono text-white uppercase tracking-wide mb-4 flex items-center gap-2">
-                  📚 CREATION ARCHIVE
-                </h3>
-
-                <div className="max-h-56 sm:max-h-64 overflow-y-auto">
-                  <div className="space-y-2 sm:space-y-3">
-                    {generatedImages.map((image, index) => (
-                      <button
-                        key={image.id}
-                        onClick={() => setCurrentImage(image)}
-                        className="w-full p-2 sm:p-3 bg-gradient-to-r from-gray-800/50 to-cyan-800/30 hover:from-cyan-700/50 hover:to-blue-700/30 border-2 border-gray-600/30 hover:border-cyan-400/50 rounded-lg transition-all text-left group hover:scale-[1.02]"
-                      >
-                        <div className="flex gap-2 sm:gap-3">
-                          <div className="relative flex-shrink-0">
-                            <img
-                              src={image.imageUrl || "/placeholder.svg"}
-                              alt={image.prompt.substring(0, 30)}
-                              className="w-10 h-10 sm:w-12 sm:h-12 rounded border-2 border-gray-600 object-cover"
-                              width="64"
-                              height="64"
-                            />
-                            <div className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-cyan-400 text-black rounded-full flex items-center justify-center text-xs font-bold shadow-md">
-                              {generatedImages.length - index}
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs text-cyan-400 font-mono flex items-center gap-1">
-                              🕐 {formatTimestamp(image.timestamp)}
-                            </div>
-                            <div className="text-xs sm:text-sm text-white font-mono truncate">
-                              {image.prompt}
-                            </div>
-                            <div className="text-xs text-purple-400 font-mono flex items-center gap-1">
-                              🧠 {image.modelName || "Base Model"}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

@@ -2,10 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { 
-  Heart, 
   Download, 
   Trash2, 
-  Edit3, 
   ArrowLeft,
   Grid,
   List,
@@ -18,13 +16,11 @@ import { Badge } from "@/components/ui/badge"
 import {
   type GalleryImage,
   getGalleryImages,
-  updateGalleryImage,
   deleteGalleryImage,
 } from "@/utils/gallery-storage"
 
 interface ImageGalleryProps {
   onBack: () => void
-  onEditImage?: (imageData: any) => void
   playSound?: (sound: string) => void
 }
 
@@ -40,31 +36,28 @@ const showToast = (message: string, type: "success" | "error" | "info" = "info")
   }
 }
 
-export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryProps) {
+export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([])
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [lightboxImage, setLightboxImage] = useState<GalleryImage | null>(null)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
 
+  // Add escape key handler
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && lightboxImage) {
+        setLightboxImage(null)
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [lightboxImage])
+
   // Load images on mount
   useEffect(() => {
     const loadImages = () => {
       const galleryImages = getGalleryImages()
-      console.log("🖼️ Loaded gallery images:", galleryImages.length)
-      
-      // Debug: Check image URLs
-      galleryImages.forEach((img, index) => {
-        console.log(`📸 Image ${index + 1}:`, {
-          id: img.id,
-          hasUrl: !!img.imageUrl,
-          urlType: typeof img.imageUrl,
-          urlLength: img.imageUrl?.length || 0,
-          urlStart: img.imageUrl?.substring(0, 50) || "no URL",
-          prompt: img.prompt?.substring(0, 30) || "no prompt"
-        })
-      })
-      
       // Sort by newest first
       galleryImages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
       setImages(galleryImages)
@@ -72,16 +65,6 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
     }
     loadImages()
   }, [])
-
-  const toggleFavorite = (id: string) => {
-    const image = images.find((img) => img.id === id)
-    if (image) {
-      const updated = { ...image, isFavorite: !image.isFavorite }
-      updateGalleryImage(id, updated)
-      setImages((prev) => prev.map((img) => (img.id === id ? updated : img)))
-      playSound?.(updated.isFavorite ? "complete" : "click")
-    }
-  }
 
   const deleteImage = (id: string) => {
     deleteGalleryImage(id)
@@ -106,7 +89,7 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
           url: image.imageUrl,
         })
       } catch (error) {
-        console.log("Error sharing:", error)
+        console.error("Error sharing:", error)
       }
     } else {
       navigator.clipboard.writeText(image.imageUrl)
@@ -130,65 +113,6 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
     setLightboxIndex(newIndex)
     setLightboxImage(images[newIndex])
     playSound?.("hover")
-  }
-
-  const editInImageEditor = (image: GalleryImage) => {
-    console.log("🎨 Edit button clicked for image:", image.id)
-    console.log("📸 Image URL:", image.imageUrl)
-    console.log("📝 Original prompt:", image.prompt)
-    
-    if (!image.imageUrl) {
-      console.error("❌ No image URL found for editing")
-      showToast("Cannot edit image: No image URL found. Try regenerating the image.", "error")
-      return
-    }
-    
-    // Check if URL is accessible (basic validation)
-    if (!image.imageUrl.startsWith('http') && !image.imageUrl.startsWith('data:')) {
-      console.error("❌ Invalid image URL format:", image.imageUrl)
-      showToast("Cannot edit image: Invalid image URL format", "error")
-      return
-    }
-    
-    if (!onEditImage) {
-      console.error("❌ No onEditImage callback provided")
-      showToast("Cannot edit image: Editor not available. Make sure you're accessing from the main app.", "error")
-      return
-    }
-
-    // Prepare image data for the editor with all required fields
-    const imageData = {
-      id: image.id,
-      prompt: image.prompt || "Edited image",
-      style: image.style || "none", 
-      imageUrl: image.imageUrl,
-      timestamp: image.timestamp || new Date(),
-      settings: image.settings || { 
-        steps: 30, 
-        guidance: 7.5, 
-        seed: Math.floor(Math.random() * 1000000) 
-      }
-    }
-    
-    console.log("🔧 Preparing image data for editor:", imageData)
-    
-    // Store in session storage for the editor
-    try {
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("editImageData", JSON.stringify(imageData))
-        console.log("✅ Image data stored in sessionStorage")
-      }
-      
-      // Call the edit callback
-      onEditImage(imageData)
-      playSound?.("click")
-      
-      console.log("✅ Edit callback executed")
-      showToast("Opening image in editor...", "success")
-    } catch (error) {
-      console.error("❌ Failed to prepare image for editing:", error)
-      showToast("Failed to prepare image for editing. Please try again.", "error")
-    }
   }
 
   if (isLoading) {
@@ -236,12 +160,16 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
           
           <div className="flex items-center gap-2">
             {/* View Mode Toggle */}
-            <div className="flex border-2 border-gray-600 rounded-lg overflow-hidden">
+            <div className="flex border-2 border-purple-500/50 rounded-lg overflow-hidden">
               <Button
                 variant={viewMode === "grid" ? "default" : "ghost"}
                 size="sm"
                 onClick={() => setViewMode("grid")}
-                className="rounded-none font-mono text-xs"
+                className={`rounded-none font-mono text-xs ${
+                  viewMode === "grid" 
+                    ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30" 
+                    : "text-gray-400 hover:text-purple-300 hover:bg-purple-500/10"
+                }`}
               >
                 <Grid className="w-4 h-4" />
               </Button>
@@ -249,7 +177,11 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
                 variant={viewMode === "list" ? "default" : "ghost"}
                 size="sm"
                 onClick={() => setViewMode("list")}
-                className="rounded-none font-mono text-xs"
+                className={`rounded-none font-mono text-xs ${
+                  viewMode === "list" 
+                    ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30" 
+                    : "text-gray-400 hover:text-purple-300 hover:bg-purple-500/10"
+                }`}
               >
                 <List className="w-4 h-4" />
               </Button>
@@ -267,25 +199,6 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
 
         {/* Gallery Content */}
         <div className="relative z-10 p-4">
-          {/* Debug info for development */}
-          {process.env.NODE_ENV === 'development' && images.length > 0 && (
-            <div className="mb-4 bg-gray-800/50 border border-yellow-600/50 rounded-lg p-3">
-              <div className="text-xs font-mono text-yellow-400 mb-2">🔧 DEBUG INFO:</div>
-              <div className="text-xs font-mono text-gray-400 space-y-1">
-                <div>Total Images: {images.length}</div>
-                <div>Images with URLs: {images.filter(img => img.imageUrl).length}</div>
-                <div>Edit Callback: {onEditImage ? "✅ Available" : "❌ Missing"}</div>
-                {images.slice(0, 2).map((img, idx) => (
-                  <div key={idx} className="border-l-2 border-blue-400 pl-2 mt-1">
-                    <div>Image {idx + 1}: {img.id.substring(0, 8)}...</div>
-                    <div>URL: {img.imageUrl ? "✅ " + img.imageUrl.substring(0, 40) + "..." : "❌ Missing"}</div>
-                    <div>Prompt: {img.prompt?.substring(0, 30) || "No prompt"}...</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          
           {images.length === 0 ? (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">🎨</div>
@@ -305,11 +218,9 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
                 <GalleryGridItem
                   key={image.id}
                   image={image}
-                  onToggleFavorite={toggleFavorite}
                   onDelete={deleteImage}
                   onDownload={downloadImage}
                   onShare={shareImage}
-                  onEdit={editInImageEditor}
                   onOpenLightbox={openLightbox}
                 />
               ))}
@@ -320,11 +231,9 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
                 <GalleryListItem
                   key={image.id}
                   image={image}
-                  onToggleFavorite={toggleFavorite}
                   onDelete={deleteImage}
                   onDownload={downloadImage}
                   onShare={shareImage}
-                  onEdit={editInImageEditor}
                   onOpenLightbox={openLightbox}
                 />
               ))}
@@ -335,12 +244,20 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
 
       {/* Lightbox Modal */}
       {lightboxImage && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="relative max-w-4xl max-h-full w-full">
+        <div 
+          className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 pt-16"
+          onClick={(e) => {
+            // Close when clicking the backdrop
+            if (e.target === e.currentTarget) {
+              setLightboxImage(null)
+            }
+          }}
+        >
+          <div className="relative max-w-7xl max-h-[calc(100vh-4rem)] w-full">
             {/* Close Button */}
             <Button
               onClick={() => setLightboxImage(null)}
-              className="absolute top-4 right-4 z-10 bg-black/50 border-2 border-gray-600 text-white hover:border-red-400"
+              className="absolute top-4 right-4 z-[60] bg-black/50 border-2 border-gray-600 text-white hover:border-red-400"
               size="sm"
             >
               <X className="w-4 h-4" />
@@ -370,7 +287,7 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
             <img
               src={lightboxImage.imageUrl}
               alt={lightboxImage.prompt}
-              className="max-w-full max-h-full object-contain mx-auto rounded-lg"
+              className="max-w-full max-h-[calc(100vh-8rem)] object-contain mx-auto rounded-lg"
             />
 
             {/* Image Info */}
@@ -385,32 +302,23 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
-                    onClick={() => toggleFavorite(lightboxImage.id)}
-                    variant="ghost"
-                    size="sm"
-                    className={`${lightboxImage.isFavorite ? "text-red-400 hover:text-red-300" : "text-gray-400 hover:text-gray-300"} hover:bg-gray-700/50`}
-                  >
-                    <Heart className={`w-4 h-4 ${lightboxImage.isFavorite ? "fill-current" : ""}`} />
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      console.log("🎨 Edit button clicked in lightbox for:", lightboxImage.id)
-                      editInImageEditor(lightboxImage)
-                      setLightboxImage(null) // Close lightbox after edit
-                    }}
-                    variant="ghost"
-                    size="sm"
-                    className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/20"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </Button>
-                  <Button
                     onClick={() => downloadImage(lightboxImage)}
                     variant="ghost"
                     size="sm"
                     className="text-green-400 hover:text-green-300 hover:bg-green-500/20"
                   >
                     <Download className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      deleteImage(lightboxImage.id)
+                      setLightboxImage(null)
+                    }}
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
@@ -425,19 +333,15 @@ export function ImageGallery({ onBack, onEditImage, playSound }: ImageGalleryPro
 // Gallery Grid Item Component
 function GalleryGridItem({ 
   image, 
-  onToggleFavorite, 
   onDelete, 
   onDownload, 
   onShare, 
-  onEdit, 
   onOpenLightbox 
 }: {
   image: GalleryImage
-  onToggleFavorite: (id: string) => void
   onDelete: (id: string) => void
   onDownload: (image: GalleryImage) => void
   onShare: (image: GalleryImage) => void
-  onEdit: (image: GalleryImage) => void
   onOpenLightbox: (image: GalleryImage) => void
 }) {
   const [isHovered, setIsHovered] = useState(false)
@@ -460,30 +364,6 @@ function GalleryGridItem({
         {isHovered && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity duration-300">
             <div className="flex items-center gap-2">
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggleFavorite(image.id)
-                }}
-                variant="ghost"
-                size="sm"
-                className={`${image.isFavorite ? "text-red-400" : "text-gray-400"} hover:scale-110 hover:bg-red-500/20`}
-              >
-                <Heart className={`w-4 h-4 ${image.isFavorite ? "fill-current" : ""}`} />
-              </Button>
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  console.log("🎨 Edit button clicked in grid for:", image.id)
-                  console.log("📸 Image data:", { url: image.imageUrl, prompt: image.prompt, style: image.style })
-                  onEdit(image)
-                }}
-                variant="ghost"
-                size="sm"
-                className="text-purple-400 hover:scale-110 hover:bg-purple-500/20"
-              >
-                <Edit3 className="w-4 h-4" />
-              </Button>
               <Button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -522,13 +402,6 @@ function GalleryGridItem({
             </span>
           </div>
         </div>
-
-        {/* Favorite Heart */}
-        {image.isFavorite && (
-          <div className="absolute top-2 right-2">
-            <Heart className="w-5 h-5 text-red-400 fill-current" />
-          </div>
-        )}
       </div>
     </div>
   )
@@ -537,19 +410,15 @@ function GalleryGridItem({
 // Gallery List Item Component
 function GalleryListItem({ 
   image, 
-  onToggleFavorite, 
   onDelete, 
   onDownload, 
   onShare, 
-  onEdit, 
   onOpenLightbox 
 }: {
   image: GalleryImage
-  onToggleFavorite: (id: string) => void
   onDelete: (id: string) => void
   onDownload: (image: GalleryImage) => void
   onShare: (image: GalleryImage) => void
-  onEdit: (image: GalleryImage) => void
   onOpenLightbox: (image: GalleryImage) => void
 }) {
   return (
@@ -575,34 +444,9 @@ function GalleryListItem({
             <span className="text-xs font-mono text-gray-400">
               {image.timestamp.toLocaleDateString()}
             </span>
-            {image.isFavorite && (
-              <Heart className="w-4 h-4 text-red-400 fill-current" />
-            )}
           </div>
           
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              onClick={() => onToggleFavorite(image.id)}
-              variant="ghost"
-              size="sm"
-              className={`${image.isFavorite ? "text-red-400 hover:text-red-300" : "text-gray-400 hover:text-gray-300"} font-mono text-xs hover:bg-gray-700/50`}
-            >
-              <Heart className={`w-3 h-3 mr-1 ${image.isFavorite ? "fill-current" : ""}`} />
-              FAVORITE
-            </Button>
-            <Button
-              onClick={() => {
-                console.log("🎨 Edit button clicked in list for:", image.id)
-                console.log("📸 Image data:", { url: image.imageUrl, prompt: image.prompt, style: image.style })
-                onEdit(image)
-              }}
-              variant="ghost"
-              size="sm"
-              className="text-purple-400 hover:text-purple-300 font-mono text-xs hover:bg-purple-500/20"
-            >
-              <Edit3 className="w-3 h-3 mr-1" />
-              EDIT
-            </Button>
             <Button
               onClick={() => onDownload(image)}
               variant="ghost"

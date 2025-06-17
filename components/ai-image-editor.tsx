@@ -142,12 +142,11 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [recentlySaved, setRecentlySaved] = useState<string | null>(null)
 
-  // Simple toast function
+  // Simple toast function for user feedback
   const showToast = (
     message: string,
     type: "success" | "error" | "info" = "info"
   ) => {
-    console.log(`${type.toUpperCase()}: ${message}`);
     if (typeof window !== "undefined" && "alert" in window) {
       if (type === "error") {
         alert(`Error: ${message}`);
@@ -155,7 +154,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // Utility function to safely format timestamps
+  // Format timestamps for display
   const formatTimestamp = (timestamp: Date | string) => {
     try {
       const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
@@ -166,7 +165,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // Initialize client-side rendering and animated elements
+  // Initialize client-side rendering and animated background elements
   useEffect(() => {
     setIsClient(true);
 
@@ -190,7 +189,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     return () => clearTimeout(animationTimer);
   }, []);
 
-  // 🔥 IMPROVED: Load image data with better state management
+  // Load and initialize image data from session storage
   useEffect(() => {
     if (!isClient) return;
 
@@ -202,12 +201,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           ...rawImageData,
           timestamp: new Date(rawImageData.timestamp),
         };
-
-        console.log("📥 Loading image data:", {
-          id: imageData.id,
-          prompt: imageData.prompt.substring(0, 50) + "...",
-          imageUrl: imageData.imageUrl,
-        });
 
         setOriginalImageData(imageData);
         setImageUrl(imageData.imageUrl);
@@ -224,7 +217,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         sessionStorage?.removeItem("editImageData");
       } else {
         const placeholderUrl = "https://picsum.photos/800/600";
-        console.log("📷 Using placeholder image");
         setImageUrl(placeholderUrl);
         setEditHistory([placeholderUrl]);
         setCurrentEditIndex(0);
@@ -240,61 +232,47 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   }, [isClient]);
 
-  // 🔥 FIXED: Better canvas initialization with proper sizing
+  // Initialize canvas with proper sizing and dimensions
   useEffect(() => {
     if (!canvasRef.current || !maskCanvasRef.current || !imageUrl || !isClient)
       return;
 
-    console.log("🖼️ Initializing canvas with imageUrl:", imageUrl);
-
     const img = new window.Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      console.log("✅ Image loaded for canvas");
       const canvas = canvasRef.current!;
       const maskCanvas = maskCanvasRef.current!;
       const ctx = canvas.getContext("2d")!;
 
-      // 🔥 IMPROVED: Better container size detection
+      // Get container dimensions for proper scaling
       const canvasContainer = canvas.closest(".xl\\:col-span-2");
       const containerRect = canvasContainer?.getBoundingClientRect();
 
-      // 🔥 FIXED: More reasonable available space calculation
+      // Calculate available space with padding
       const availableWidth = containerRect?.width || window.innerWidth * 0.5;
-      const availableHeight = window.innerHeight * 0.6; // Reduced from 0.7
+      const availableHeight = window.innerHeight * 0.6;
 
-      // 🔥 FIXED: More conservative padding
-      const maxWidth = Math.max(300, availableWidth - 40); // Reduced padding
-      const maxHeight = Math.max(300, availableHeight - 60); // Reduced padding
+      // Calculate maximum dimensions with padding
+      const maxWidth = Math.max(300, availableWidth - 40);
+      const maxHeight = Math.max(300, availableHeight - 60);
 
-      console.log("📐 Container sizing:", {
-        containerWidth: containerRect?.width,
-        containerHeight: containerRect?.height,
-        availableWidth,
-        availableHeight,
-        maxWidth,
-        maxHeight,
-        imageSize: { width: img.width, height: img.height },
-      });
-
-      // 🔥 FIXED: Better scaling logic - fit within container
+      // Calculate scale ratio to fit within container
       const scaleX = maxWidth / img.width;
       const scaleY = maxHeight / img.height;
       const ratio = Math.min(scaleX, scaleY);
 
-      // 🔥 REMOVED: Aggressive minimum dimension requirement
-      // Only apply minimum if the result would be tiny
-      const finalRatio = Math.max(ratio, 0.3); // Prevent images smaller than 30% of original
+      // Ensure minimum scale ratio
+      const finalRatio = Math.max(ratio, 0.3);
 
-      // 🔥 FIXED: Cap maximum size to prevent oversized canvases
-      const maxCanvasSize = 800; // Maximum canvas dimension
+      // Cap maximum canvas size
+      const maxCanvasSize = 800;
       const width = Math.min(maxCanvasSize, Math.round(img.width * finalRatio));
       const height = Math.min(
         maxCanvasSize,
         Math.round(img.height * finalRatio)
       );
 
-      // Set both canvases to exact same dimensions
+      // Set canvas dimensions
       canvas.width = width;
       canvas.height = height;
       maskCanvas.width = width;
@@ -304,38 +282,27 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       maskCanvas.style.width = `${width}px`;
       maskCanvas.style.height = `${height}px`;
 
-      // 🔥 FIXED: Store the dimensions and ratio for later use
+      // Store dimensions for later use
       setCanvasDimensions({
         width,
         height,
         ratio: finalRatio,
       });
 
-      // Clear and draw image at calculated size
+      // Draw image at calculated size
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
-
-      console.log("🎨 Canvas created with proper sizing:", {
-        originalImageSize: { width: img.width, height: img.height },
-        finalCanvasSize: { width, height },
-        ratio: finalRatio,
-        scalingApplied: {
-          scaleX: scaleX.toFixed(3),
-          scaleY: scaleY.toFixed(3),
-          finalRatio: finalRatio.toFixed(3),
-        },
-      });
     };
 
     img.onerror = (error: Event | string) => {
-      console.error("❌ Failed to load image for canvas:", error);
+      console.error("Failed to load image for canvas:", error);
       showToast("Failed to load image", "error");
     };
 
     img.src = imageUrl;
   }, [imageUrl, isClient]);
 
-  // Enhanced drawing functions for better mask precision
+  // Drawing functions for mask creation
   const startDrawing = useCallback(
     (e: React.MouseEvent) => {
       if (!maskCanvasRef.current) return;
@@ -343,25 +310,15 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       const canvas = maskCanvasRef.current;
       const rect = canvas.getBoundingClientRect();
 
-      // Use canvas dimensions directly instead of scaling
+      // Calculate mouse position relative to canvas
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-
-      console.log("🎯 Drawing start:", {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        rectLeft: rect.left,
-        rectTop: rect.top,
-        calculatedX: x,
-        calculatedY: y,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-      });
 
       setIsDrawing(true);
 
       const ctx = canvas.getContext("2d")!;
 
+      // Set drawing style based on tool
       ctx.globalCompositeOperation =
         tool === "eraser" ? "destination-out" : "source-over";
       ctx.fillStyle = "rgba(255, 0, 255, 0.8)";
@@ -370,6 +327,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
+      // Draw initial point
       ctx.beginPath();
       ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -387,7 +345,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       const canvas = maskCanvasRef.current;
       const rect = canvas.getBoundingClientRect();
 
-      // Use canvas dimensions directly
+      // Calculate mouse position relative to canvas
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
@@ -395,6 +353,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       ctx.lineTo(x, y);
       ctx.stroke();
 
+      // Draw point at current position
       ctx.beginPath();
       ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -419,7 +378,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     );
   }, []);
 
-  // Better prompt validation with clearer feedback
+  // Validate and provide feedback for edit prompts
   const validatePrompt = (
     promptText: string
   ): { isValid: boolean; message?: string } => {
@@ -473,7 +432,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     return { isValid: true };
   };
 
-  // Enhanced quick prompt handling that avoids duplicates
+  // Handle quick prompt selection and prevent duplicates
   const handleQuickPrompt = (quickPrompt: string) => {
     const currentPrompt = prompt.trim();
 
@@ -491,6 +450,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     showToast(`Added: '${quickPrompt}'`, "success");
   };
 
+  // Handle reference image upload for ControlNet
   const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -500,7 +460,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // Mask refinement function
+  // Enhance mask edges for better blending
   const refineMask = useCallback(() => {
     if (!maskCanvasRef.current) return;
 
@@ -509,6 +469,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
 
+    // Increase opacity of masked pixels for better blending
     for (let i = 0; i < data.length; i += 4) {
       if (data[i + 3] > 0) {
         data[i + 3] = Math.min(255, data[i + 3] * 1.1);
@@ -519,7 +480,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     showToast("Mask refined for better blending", "info");
   }, []);
 
-  // Add mask preview function
+  // Preview masked area with highlight effect
   const previewMaskArea = useCallback(() => {
     if (!maskCanvasRef.current || !canvasRef.current) return;
 
@@ -528,7 +489,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     const maskCtx = maskCanvas.getContext("2d")!;
     const mainCtx = mainCanvas.getContext("2d")!;
 
-    // Get the original image data
+    // Get original image and mask data
     const originalImageData = mainCtx.getImageData(
       0,
       0,
@@ -542,39 +503,34 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       maskCanvas.height
     );
 
-    // Create a copy to modify
+    // Create preview with highlighted mask area
     const previewImageData = new ImageData(
       new Uint8ClampedArray(originalImageData.data),
       originalImageData.width,
       originalImageData.height
     );
 
-    // Apply highlight to masked areas
+    // Apply blue highlight to masked areas
     for (let i = 0; i < previewImageData.data.length; i += 4) {
       const maskAlpha = maskData.data[i + 3];
       if (maskAlpha > 0) {
-        // Highlight masked area with blue tint
         previewImageData.data[i] = Math.min(
           255,
           previewImageData.data[i] * 0.3
-        ); // Red
+        );
         previewImageData.data[i + 1] = Math.min(
           255,
           previewImageData.data[i + 1] * 0.3
-        ); // Green
+        );
         previewImageData.data[i + 2] = Math.min(
           255,
           previewImageData.data[i + 2] * 0.3 + 200
-        ); // Blue
+        );
       }
     }
 
-    // Show the preview
+    // Show preview and restore original after 3 seconds
     mainCtx.putImageData(previewImageData, 0, 0);
-
-    console.log("👁️ Mask preview applied");
-
-    // Restore original image after 3 seconds
     setTimeout(() => {
       if (imageUrl) {
         const img = new window.Image();
@@ -582,7 +538,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         img.onload = () => {
           mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
           mainCtx.drawImage(img, 0, 0, mainCanvas.width, mainCanvas.height);
-          console.log("🔄 Original image restored");
         };
         img.src = imageUrl;
       }
@@ -591,7 +546,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     showToast("Highlighted masked area for 3 seconds", "info");
   }, [imageUrl]);
 
-  // Quick tips for better mask precision
+  // Show random mask precision tip
   const showMaskTips = () => {
     const tips = [
       "🎯 Draw directly over what you want to change",
@@ -605,14 +560,8 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     showToast(randomTip, "info");
   };
 
-  // 🔥 IMPROVED: Better processEdit with more debugging
+  // Process edit with AI and handle response
   const processEdit = async () => {
-    console.log("🎨 Starting processEdit");
-    console.log("📝 Current prompt:", prompt);
-    console.log("📸 Current imageUrl:", imageUrl);
-    console.log("📋 Edit history:", editHistory);
-    console.log("📍 Current index:", currentEditIndex);
-
     const validation = validatePrompt(prompt);
     if (!validation.isValid) {
       showToast(validation.message!, "error");
@@ -653,10 +602,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
       const cleanPrompt = prompt.trim();
 
-      console.log("🎯 Sending clean prompt:", cleanPrompt);
-      console.log("📸 Using image from history index:", currentEditIndex);
-      console.log("🖼️ Image URL being sent:", editHistory[currentEditIndex]);
-
       const formData = new FormData();
       formData.append("imageUrl", editHistory[currentEditIndex]);
       formData.append("mask", maskBlob, "mask.png");
@@ -675,43 +620,23 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
       const data = await response.json();
 
-      console.log("✅ API Response received:", {
-        imageUrl: data.imageUrl,
-        promptUsed: data.promptUsed,
-        originalPrompt: data.originalPrompt,
-        inputUrl: data.inputUrl,
-      });
-
-      // Better state management
+      // Validate and set result
       const resultImageUrl = data.imageUrl;
-
-      // Validate the URL
       if (!resultImageUrl || !resultImageUrl.startsWith("http")) {
         throw new Error(`Invalid image URL: ${resultImageUrl}`);
       }
 
-      console.log("🔧 Setting result state to:", resultImageUrl);
-
-      // Set result first
       setResult(resultImageUrl);
-
-      // Use callback to ensure showComparison is set after result
       setTimeout(() => {
-        console.log("🔧 Enabling comparison view...");
         setShowComparison(true);
         setHasUnsavedChanges(true);
       }, 100);
 
       if (data.imageUrl === editHistory[currentEditIndex]) {
-        console.log("⚠️ Warning: Output URL is same as input URL");
         showToast(
           "⚠️ The AI returned the same image. Try a more specific prompt or larger mask area.",
           "info"
         );
-      }
-
-      if (data.promptUsed) {
-        console.log("✅ Prompt used by API:", data.promptUsed);
       }
 
       showToast(
@@ -731,27 +656,16 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // 🔥 FIX 3: Updated redraw function that preserves dimensions
+  // Redraw canvas with preserved dimensions
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current || !imageUrl || !isClient || !canvasDimensions) {
-      console.log("⚠️ Missing requirements for canvas redraw:", {
-        canvas: !!canvasRef.current,
-        imageUrl: !!imageUrl,
-        isClient,
-        dimensions: !!canvasDimensions,
-      });
       return;
     }
-
-    console.log(
-      "🎨 Redrawing canvas with preserved dimensions:",
-      canvasDimensions
-    );
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d")!;
 
-    // 🔥 FIXED: Ensure canvas keeps original dimensions
+    // Maintain original dimensions
     canvas.width = canvasDimensions.width;
     canvas.height = canvasDimensions.height;
     canvas.style.width = `${canvasDimensions.width}px`;
@@ -760,10 +674,8 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     const img = new window.Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      // 🔥 FIXED: Draw image at the same size as originally calculated
       ctx.clearRect(0, 0, canvasDimensions.width, canvasDimensions.height);
       ctx.drawImage(img, 0, 0, canvasDimensions.width, canvasDimensions.height);
-      console.log("✅ Canvas redrawn with preserved dimensions");
     };
     img.onerror = (error) => {
       console.error("❌ Failed to redraw canvas:", error);
@@ -771,40 +683,24 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     img.src = imageUrl;
   }, [imageUrl, isClient, canvasDimensions]);
 
-  // 🔥 FIX 4: Updated reject function with better dimension handling
+  // Reject edit and restore previous state
   const rejectEdit = () => {
-    console.log("🔄 REJECT BUTTON CLICKED");
-    console.log("📸 Current imageUrl:", imageUrl);
-    console.log("🎯 Current result:", result);
-    console.log("👁️ Current showComparison:", showComparison);
-    console.log("📐 Canvas dimensions stored:", canvasDimensions);
-
     if (!result) {
-      console.log("❌ No result to reject");
       showToast("No edit result to reject", "error");
       return;
     }
-
-    console.log("🔄 Rejecting edit, preserving current image state");
 
     // Clear edit states
     setResult(null);
     setShowComparison(false);
     setHasUnsavedChanges(false);
 
-    // 🔥 FIXED: Ensure we have dimensions before redrawing
+    // Redraw canvas with proper dimensions
     setTimeout(() => {
       if (canvasDimensions) {
-        console.log(
-          "🎨 Redrawing canvas with stored dimensions:",
-          canvasDimensions
-        );
         redrawCanvas();
       } else {
-        console.warn(
-          "⚠️ No canvas dimensions stored, forcing canvas reinitialization"
-        );
-        // Force a canvas reinitialization by triggering the effect
+        // Force canvas reinitialization
         const currentImageUrl = imageUrl;
         setImageUrl("");
         setTimeout(() => {
@@ -813,14 +709,13 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       }
     }, 100);
 
-    console.log("🔄 Edit rejected - canvas should maintain original size");
     showToast(
       "Edit rejected. The image remains unchanged. Adjust your mask or prompt and try again.",
       "success"
     );
   };
 
-  // 🔥 FIX 5: Add dimension preservation for mask canvas too
+  // Maintain mask canvas dimensions
   useEffect(() => {
     if (
       !showComparison &&
@@ -829,7 +724,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       canvasDimensions &&
       maskCanvasRef.current
     ) {
-      console.log("👁️ Ensuring mask canvas dimensions match main canvas");
       const maskCanvas = maskCanvasRef.current;
       maskCanvas.width = canvasDimensions.width;
       maskCanvas.height = canvasDimensions.height;
@@ -838,7 +732,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   }, [showComparison, result, imageUrl, canvasDimensions]);
 
-  // 🔥 FIX 8: Enhanced debug panel with dimension info
+  // Log canvas state for debugging
   useEffect(() => {
     if (result) {
       console.log("🔍 Canvas state:", {
@@ -858,7 +752,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   }, [result, imageUrl, showComparison, canvasDimensions]);
 
-  // 🔥 FIX 9: Canvas state indicator with dimension info
+  // Check canvas content and redraw if empty
   useEffect(() => {
     if (canvasRef.current) {
       const canvas = canvasRef.current;
@@ -878,7 +772,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   }, [redrawCanvas]);
 
-  // Undo to previous version in edit history
+  // Undo to previous version
   const undoEdit = () => {
     if (currentEditIndex > 0) {
       const newIndex = currentEditIndex - 1;
@@ -893,7 +787,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // Redo to next version in edit history
+  // Redo to next version
   const redoEdit = () => {
     if (currentEditIndex < editHistory.length - 1) {
       const newIndex = currentEditIndex + 1;
@@ -923,31 +817,21 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   };
 
-  // 🔥 FIX 4: Updated accept function with proper canvas handling
+  // Accept edit and update history
   const acceptEdit = () => {
-    console.log("✅ ACCEPT BUTTON CLICKED");
-    console.log("📸 Current imageUrl:", imageUrl);
-    console.log("🎯 Current result:", result);
-
     if (!result) {
-      console.log("❌ No result to accept");
       showToast("No edit result to accept", "error");
       return;
     }
-
-    console.log("✅ Accepting edit");
 
     // Update history and current index
     const newHistory = [...editHistory.slice(0, currentEditIndex + 1), result];
     const newIndex = newHistory.length - 1;
 
-    console.log("📋 New history length:", newHistory.length);
-    console.log("📍 New index:", newIndex);
-
     // Update all states
     setEditHistory(newHistory);
     setCurrentEditIndex(newIndex);
-    setImageUrl(result); // This will trigger canvas redraw via useEffect
+    setImageUrl(result);
 
     // Clear editing states
     setResult(null);
@@ -956,7 +840,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     clearMask();
     setPrompt("");
 
-    console.log("✅ Edit accepted, canvas will redraw with new image");
     showToast(
       "Edit accepted! You can continue editing from this new version.",
       "success"
@@ -969,7 +852,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     
     setIsSaving(true)
     
-    // Create a description for the edited image
+    // Create description for the edited image
     const editDescription = originalImageData 
       ? `${originalImageData.prompt} (edited: ${prompt})`
       : `Edited image: ${prompt}`
@@ -1002,7 +885,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   }
 
   return (
-    <div className="w-full min-h-screen bg-black p-2 sm:p-4">
+    <div className="w-full h-[calc(100vh-4rem)] bg-black p-2 sm:p-4 overflow-hidden">
       {/* Sound Control */}
       <button
         onClick={() => setIsMuted(!isMuted)}
@@ -1017,7 +900,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       </button>
 
       {/* Main Container */}
-      <div className="bg-gray-900 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden">
+      <div className="bg-gray-900 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden h-full">
         {/* Scanlines Effect */}
         <div className="absolute inset-0 pointer-events-none opacity-10">
           <div
@@ -1114,9 +997,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
         )}
 
-        <div className="relative z-10 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4">
+        <div className="relative z-10 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4 xl:items-start h-[calc(100%-6rem)]">
           {/* Left Panel - Tools & ControlNet */}
-          <div className="xl:col-span-1 space-y-4">
+          <div className="xl:col-span-1 space-y-4 overflow-y-auto pr-2 max-h-full [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-purple-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-purple-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
             {/* Edit Mode */}
             <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
@@ -1216,7 +1099,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                   <Button
                     size="sm"
                     onClick={() => {
-                      console.log("🔧 Smart canvas resize triggered");
                       if (canvasRef.current && imageUrl) {
                         const img = new window.Image();
                         img.crossOrigin = "anonymous";
@@ -1264,20 +1146,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                           // Redraw image
                           ctx.clearRect(0, 0, width, height);
                           ctx.drawImage(img, 0, 0, width, height);
-
-                          console.log("🔧 Canvas resized to optimal size:", {
-                            newSize: { width, height },
-                            scale: scale.toFixed(3),
-                            containerSize: {
-                              width: containerWidth,
-                              height: containerHeight,
-                            },
-                          });
-
-                          showToast(
-                            `Canvas resized to ${width}x${height}px`,
-                            "info"
-                          );
                         };
                         img.src = imageUrl;
                       }
@@ -1291,7 +1159,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                   <Button
                     size="sm"
                     onClick={() => {
-                      console.log("📦 Container-fit resize triggered");
                       if (canvasRef.current && imageUrl) {
                         const img = new window.Image();
                         img.crossOrigin = "anonymous";
@@ -1341,20 +1208,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                           // Redraw image
                           ctx.clearRect(0, 0, width, height);
                           ctx.drawImage(img, 0, 0, width, height);
-
-                          console.log("📦 Canvas fit to container:", {
-                            containerSize: {
-                              width: maxWidth,
-                              height: maxHeight,
-                            },
-                            canvasSize: { width, height },
-                            scale: scale.toFixed(3),
-                          });
-
-                          showToast(
-                            `Canvas fit to container: ${width}x${height}px`,
-                            "info"
-                          );
                         };
                         img.src = imageUrl;
                       }
@@ -1500,14 +1353,14 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
           {/* Center Panel - Canvas */}
           <div className="xl:col-span-2">
-            <div className="bg-gradient-to-br from-black/60 via-gray-900/20 to-black/60 backdrop-blur-sm border-2 border-gray-400/50 rounded-xl p-4">
+            <div className="bg-gradient-to-br from-black/60 via-gray-900/20 to-black/60 backdrop-blur-sm border-2 border-gray-400/50 rounded-xl p-4 h-full">
               <div className="flex items-center justify-between mb-4">
                 <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-yellow-400" />
                   CANVAS EDITOR
                 </Label>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-xs">
+                  <Badge variant="outline" className="font-mono text-xs text-white">
                     {tool.toUpperCase()}
                   </Badge>
                   <div className="flex items-center gap-1">
@@ -1569,7 +1422,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                   </div>
                 ) : (
                   <div className="relative flex items-center justify-center w-full h-full">
-                    {/* 🔥 FIX 6: Enhanced canvas render with better state management */}
                     <div className="relative">
                       <canvas
                         ref={canvasRef}
@@ -1595,7 +1447,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                         onMouseLeave={stopDrawing}
                       />
 
-                      {/* Canvas state indicator */}
                       <div className="absolute top-2 right-2 bg-black/70 text-green-400 px-2 py-1 rounded text-xs font-mono font-bold">
                         {canvasRef.current?.width}×{canvasRef.current?.height}px
                         {canvasDimensions
@@ -1604,7 +1455,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                         {showComparison ? " | COMPARISON" : " | EDITING"}
                       </div>
 
-                      {/* 🔥 ADDED: Canvas content indicator */}
                       <div className="absolute bottom-2 left-2 bg-black/70 text-cyan-400 px-2 py-1 rounded text-xs font-mono">
                         {imageUrl ? "IMAGE LOADED" : "NO IMAGE"}
                       </div>
@@ -1630,7 +1480,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
 
           {/* Right Panel - Prompts & Actions */}
-          <div className="xl:col-span-1 space-y-4">
+          <div className="xl:col-span-1 space-y-4 overflow-y-auto pl-2 max-h-full [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-cyan-500/20">
             {/* Quick Prompts */}
             <div className="bg-gradient-to-br from-black/60 via-pink-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-pink-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
@@ -1793,9 +1643,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     <Switch
                       checked={showComparison}
                       onCheckedChange={(checked) => {
-                        console.log("🔧 Manual comparison toggle:", checked);
                         setShowComparison(checked);
                       }}
+                      className="data-[state=checked]:bg-purple-500 data-[state=unchecked]:bg-gray-400"
                     />
                   </div>
 
@@ -1805,62 +1655,34 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     </div>
 
                     <Button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log(
-                          "🟢 ACCEPT BUTTON CLICKED - Event triggered"
-                        );
+                      onClick={() => {
                         acceptEdit();
                       }}
                       size="sm"
-                      className="w-full font-mono text-xs bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 mb-2"
+                      className="w-full font-mono text-xs bg-emerald-900/80 text-emerald-100 border-2 border-emerald-500/30 hover:bg-emerald-800/90 hover:border-emerald-400/50 hover:text-emerald-50 transition-colors mb-2"
                     >
-                      <Check className="w-3 h-3 mr-1" />✅ ACCEPT & CONTINUE
+                      <Check className="w-3 h-3 mr-1" />ACCEPT & CONTINUE
                       EDITING
                     </Button>
 
                     <Button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log(
-                          "🔴 REJECT BUTTON CLICKED - Event triggered"
-                        );
+                      onClick={() => {
                         rejectEdit();
                       }}
                       variant="outline"
                       size="sm"
-                      className="w-full font-mono text-xs border-orange-400/50 text-orange-300 hover:bg-orange-500/20"
+                      className="w-full font-mono text-xs bg-red-900/80 text-red-100 border-2 border-red-500/30 hover:bg-red-800/90 hover:border-red-400/50 hover:text-red-50 transition-colors"
                     >
                       <X className="w-3 h-3 mr-1" />
-                      🔄 REJECT & KEEP CURRENT IMAGE
+                      REJECT & KEEP CURRENT IMAGE
                     </Button>
                   </div>
-
-                  {/* 🔥 ADDED: Emergency clear button for testing */}
-                  <Button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log("🚨 EMERGENCY CLEAR CLICKED");
-                      setResult(null);
-                      setShowComparison(false);
-                      setHasUnsavedChanges(false);
-                      showToast("Edit result forcibly cleared", "info");
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="w-full font-mono text-xs border-red-400/50 text-red-300 hover:bg-red-500/20"
-                  >
-                    🚨 EMERGENCY CLEAR RESULT
-                  </Button>
 
                   <Button
                     onClick={handleSaveEditToGallery}
                     disabled={isSaving || !result}
                     size="sm"
-                    className="w-full font-mono text-xs bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 mb-2"
+                    className="w-full font-mono text-xs bg-gradient-to-r from-purple-900/90 to-pink-900/90 text-purple-100 border-2 border-purple-500/30 hover:bg-purple-800/90 hover:border-purple-400/50 hover:text-purple-50 transition-colors shadow-[0_0_15px_rgba(168,85,247,0.2)] hover:shadow-[0_0_20px_rgba(168,85,247,0.3)]"
                   >
                     {isSaving ? (
                       <div className="flex items-center gap-2">
@@ -1875,7 +1697,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     ) : (
                       <div className="flex items-center gap-2">
                         <Save className="w-3 h-3" />
-                        💾 SAVE TO GALLERY
+                        SAVE TO GALLERY
                       </div>
                     )}
                   </Button>

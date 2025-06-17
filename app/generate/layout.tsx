@@ -1,7 +1,7 @@
 import type React from "react"
 
 export const metadata = {
-  title: "AI Art Studio - Generate Images",
+  title: "Artist AI Studio - Generate Images",
   description: "Generate AI images that are trained on your own images",
 }
 
