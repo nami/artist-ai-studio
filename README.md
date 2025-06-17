@@ -1,142 +1,188 @@
 # Artist AI Studio
 
-## Setup Instructions for Mac (using Homebrew)
+> **Take back control of your creativity.** Train AI on *your* art, generate with *your* style, keep *your* vision intact.
+
+## 🎨 For Creatives, By Creatives
+
+Tired of seeing your artistic style copied without permission? Frustrated by generic AI that doesn't understand your unique vision? **Artist AI Studio** puts the power back in your hands.
+
+This isn't just another AI image generator. It's a complete creative platform that lets you train custom AI models on your own artwork, ensuring your personal style remains yours while amplifying your creative output.
+
+### ✨ Why Artist AI Studio?
+
+**🛡️ Protect Your Style**  
+Train AI models exclusively on your own artwork. No more worrying about your designs being scraped and used without permission.
+
+**🚀 Amplify Your Creativity**  
+Generate infinite variations in your signature style. Explore new ideas faster than ever while maintaining artistic authenticity.
+
+**💼 Professional Workflow**  
+Built for working artists. Manage your AI-generated portfolio, track your creative process, and maintain quality control over every piece.
+
+**🎯 Your Art, Your Rules**  
+Every generation is powered by models you trained, using artwork you created. The AI works *for* you, not against you.
+
+---
+
+## 🔥 What You Get
+
+- **🎨 Custom AI Training** - Train models on your own artwork to preserve your unique style
+- **⚡ Lightning-Fast Generation** - Create new artwork in seconds with your personalized AI
+- **✏️ Advanced Editing Tools** - Fine-tune your AI creations to perfection
+- **🖼️ Smart Gallery Management** - Organize and showcase your AI-generated portfolio
+---
+
+## 🏗️ Built for Artists Who Mean Business
+
+This platform was created by artists who understand the real challenges of modern creative work. We know you need tools that enhance your vision, not replace it.
+
+### Project Architecture
+
+```
+artist-ai-studio/
+├── app/                    # Next.js app directory
+│   ├── api/               # API routes for AI generation
+│   ├── dashboard/         # Creative analytics & insights
+│   ├── edit/             # Advanced image editing suite
+│   ├── gallery/          # Portfolio management
+│   ├── generate/         # AI generation interface
+│   └── training/         # Custom model training
+├── components/            # Reusable React components
+├── contexts/             # React context providers
+├── hooks/                # Custom React hooks
+├── lib/                  # Utility libraries
+├── public/               # Static assets
+└── utils/                # Helper functions
+```
+
+---
+
+## 🚀 Quick Start for Mac
 
 ### Prerequisites
 
-1. Install Homebrew (if not already installed)
+1. **Install Homebrew** (if needed)
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
-2. Install Node.js (v20 or later)
+2. **Install Node.js** (v20 or later)
    ```bash
    brew install node
    ```
 
-3. Install pnpm (Package Manager)
+3. **Install pnpm** (Fast, disk space efficient package manager)
    ```bash
    brew install pnpm
    ```
 
-4. Install Vercel CLI
+4. **Install Vercel CLI**
    ```bash
    pnpm add -g vercel
    ```
 
-### Project Setup
+### Get Started
 
-1. Clone the repository
+1. **Clone & Navigate**
    ```bash
    git clone https://github.com/nami/artist-ai-studio.git
    cd artist-ai-studio
    ```
 
-2. Install dependencies
+2. **Install Dependencies**
    ```bash
    pnpm install
    ```
 
-3. Set up environment variables
-   - Copy `.env.local` from your old machine or create a new one
-   - Required environment variables:
-     ```
-     NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-     NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-     REPLICATE_API_TOKEN=your_replicate_token
-     REPLICATE_WEBHOOK_SECRET=your_webhook_secret
-     BLOB_READ_WRITE_TOKEN=your_blob_token
-     ```
-
-4. Link to Vercel project
+3. **Environment Setup**
    ```bash
+   # Link to your Vercel project
    vercel link
-   ```
-   - Select your existing project when prompted
-
-5. Pull environment variables from Vercel
-   ```bash
+   
+   # Pull your environment variables
    vercel env pull
    ```
+   
+   Required environment variables:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   REPLICATE_API_TOKEN=your_replicate_token
+   REPLICATE_WEBHOOK_SECRET=your_webhook_secret
+   BLOB_READ_WRITE_TOKEN=your_blob_token
+   ```
 
-### Development
-
-1. Start the development server
+4. **Launch Your Creative Studio**
    ```bash
    pnpm dev
    ```
+   
+   🎉 Your studio opens at [http://localhost:3000](http://localhost:3000)
 
-2. Build the project
-   ```bash
-   pnpm build
-   ```
+---
 
-3. Start production server
-   ```bash
-   pnpm start
-   ```
-
-### Deployment
-
-1. Deploy to production
-   ```bash
-   vercel deploy --prod
-   ```
-
-### Troubleshooting
-
-1. If you encounter any build errors:
-   - Make sure all environment variables are set correctly
-   - Check if pnpm is properly installed: `which pnpm`
-   - Verify Node.js version: `node --version`
-   - If pnpm commands fail, try: `brew reinstall pnpm`
-
-2. If Vercel CLI commands fail:
-   - Run `vercel login` to ensure you're authenticated
-   - Check if you have the correct project linked
-   - If Vercel CLI is not found, try: `brew reinstall pnpm && pnpm add -g vercel`
-
-### Additional Notes
-
-- The project uses pnpm as the package manager
-- Environment variables are managed through Vercel
-- The project is configured to use Edge Runtime for API routes
-- Make sure to keep your `.env.local` file secure and never commit it to version control
-- If you get any permission errors, you might need to run: `sudo chown -R $(whoami) /usr/local/lib/node_modules`
-
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
+## ⚡ Development Commands
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm dev        # Start your creative playground
+pnpm build      # Build for production
+pnpm start      # Run production server
+pnpm lint       # Code quality check
+pnpm format     # Beautify your code
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🌟 Deploy Your Studio
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Ready to share your creative platform with the world?
 
-## Learn More
+```bash
+vercel deploy --prod
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🛠️ Troubleshooting
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**Build Issues?**
+- Verify all environment variables are set
+- Check Node.js version: `node --version`
+- Reinstall pnpm if needed: `brew reinstall pnpm`
 
-## Deploy on Vercel
+**Vercel CLI Problems?**
+- Authenticate: `vercel login`
+- Verify project linking
+- Reinstall if needed: `brew reinstall pnpm && pnpm add -g vercel`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Permission Errors?**
+```bash
+sudo chown -R $(whoami) /usr/local/lib/node_modules
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🎯 Tech Stack
+
+**Frontend:** Next.js 14, TypeScript, Tailwind CSS  
+**Backend:** Edge Runtime API, Supabase  
+**AI Platform:** Replicate API  
+**Deployment:** Vercel  
+**Storage:** Vercel Blob
+
+---
+
+## 📚 Learn More
+
+Dive deeper into the technologies powering your creative studio:
+
+- [Next.js Documentation](https://nextjs.org/docs) - The React framework for production
+- [Tailwind CSS](https://tailwindcss.com/docs) - Utility-first CSS framework
+- [Supabase](https://supabase.com/docs) - Open source Firebase alternative
+- [Replicate API](https://replicate.com/docs) - Run machine learning models in the cloud
+
+---
+
+**Ready to revolutionize your creative process?** 🚀
+
+*Built with ❤️ for the creative community*
