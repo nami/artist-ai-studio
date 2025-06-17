@@ -951,7 +951,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
           <div className="flex items-center gap-2">
             {originalImageData && (
-              <Badge variant="outline" className="font-mono text-xs">
+              <Badge variant="outline" className="font-mono text-xs text-white">
                 FROM:{" "}
                 {originalImageData.style !== "none"
                   ? originalImageData.style.toUpperCase()
@@ -999,7 +999,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
         <div className="relative z-10 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4 xl:items-start h-[calc(100%-6rem)]">
           {/* Left Panel - Tools & ControlNet */}
-          <div className="xl:col-span-1 space-y-4 overflow-y-auto pr-2 max-h-full [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-purple-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-purple-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
+          <div className="xl:col-span-1 space-y-4 overflow-y-auto pr-2 h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-purple-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-purple-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
             {/* Edit Mode */}
             <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
@@ -1480,7 +1480,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
 
           {/* Right Panel - Prompts & Actions */}
-          <div className="xl:col-span-1 space-y-4 overflow-y-auto pl-2 max-h-full [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-cyan-500/20">
+          <div className="xl:col-span-1 space-y-4 overflow-y-auto pl-2 h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-cyan-500/20">
             {/* Quick Prompts */}
             <div className="bg-gradient-to-br from-black/60 via-pink-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-pink-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">

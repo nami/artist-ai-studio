@@ -1,97 +1,173 @@
-// app/api/generate/status/[id]/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
-import Replicate from 'replicate';
+// app/api/generate/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import Replicate from "replicate";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: NextRequest) {
   try {
-    const generationId = params.id;
+    const body = await request.json();
+    const {
+      prompt,
+      modelId, // Updated to match your frontend
+      userId,
+      steps = 28,
+      guidance = 3.5,
+      seed,
+    } = body;
 
-    const { data: generation, error } = await supabaseAdmin
-      .from('generations')
-      .select('*')
-      .eq('id', generationId)
-      .single();
+    console.log("🚀 Starting generation...");
 
-    if (error || !generation) {
-      return NextResponse.json({ error: 'Generation not found' }, { status: 404 });
-    }
+    let model: `${string}/${string}` = "black-forest-labs/flux-schnell";
+    let finalPrompt = prompt;
+    let isUsingCustomModel = false;
 
-    // If still generating and we have prediction_id, check Replicate directly
-    // This is important for localhost where webhooks don't work
-    if (generation.status === 'generating' && generation.prediction_id) {
-      try {
-        const prediction = await replicate.predictions.get(generation.prediction_id);
+    // Handle custom model
+    if (modelId && modelId !== "base") {
+      const { data: dataset } = await supabaseAdmin
+        .from("datasets")
+        .select("model_version, trigger_word, training_status")
+        .eq("id", modelId)
+        .single();
+
+      if (dataset?.model_version && dataset?.training_status === "completed") {
+        model = dataset.model_version;
+        isUsingCustomModel = true;
         
-        if (prediction.status === 'succeeded') {
-          let imageUrl = '';
-          if (Array.isArray(prediction.output)) {
-            imageUrl = prediction.output[0];
-          } else if (typeof prediction.output === 'string') {
-            imageUrl = prediction.output;
-          }
-
-          if (imageUrl) {
-            // Update database
-            await supabaseAdmin
-              .from('generations')
-              .update({ 
-                image_url: imageUrl,
-                status: 'completed'
-              })
-              .eq('id', generationId);
-
-            return NextResponse.json({
-              id: generationId,
-              status: 'completed',
-              imageUrl,
-              prompt: generation.prompt,
-              createdAt: generation.created_at
-            });
-          }
-        } else if (prediction.status === 'failed') {
-          await supabaseAdmin
-            .from('generations')
-            .update({ 
-              status: 'failed',
-              error_message: prediction.error || 'Generation failed'
-            })
-            .eq('id', generationId);
-
-          return NextResponse.json({
-            id: generationId,
-            status: 'failed',
-            error: prediction.error || 'Generation failed',
-            prompt: generation.prompt,
-            createdAt: generation.created_at
-          });
+        if (dataset.trigger_word && !finalPrompt.includes(dataset.trigger_word)) {
+          finalPrompt = `${dataset.trigger_word} ${finalPrompt}`;
         }
-        // Still processing - return current status
-      } catch (replicateError) {
-        console.error('Failed to check Replicate status:', replicateError);
-        // Continue with database status if Replicate check fails
       }
     }
 
-    return NextResponse.json({
-      id: generation.id,
-      status: generation.status || 'generating',
-      imageUrl: generation.image_url,
-      prompt: generation.prompt,
-      error: generation.error_message,
-      createdAt: generation.created_at
-    });
+    // Prepare input
+    let input: any = {
+      prompt: finalPrompt,
+      num_outputs: 1,
+      aspect_ratio: "1:1",
+      output_format: "webp",
+      output_quality: 80,
+    };
+
+    if (isUsingCustomModel) {
+      input.guidance_scale = guidance;
+      input.num_inference_steps = Math.min(steps, 28);
+      input.lora_scale = 1.0;
+    } else {
+      input.guidance_scale = 0;
+      input.num_inference_steps = Math.min(steps, 4);
+    }
+
+    if (seed) input.seed = seed;
+
+    // Decide: async vs sync based on model and environment
+    const useAsync = isUsingCustomModel || process.env.NODE_ENV === 'production';
+
+    if (useAsync) {
+      // ASYNC: Start prediction, don't wait
+      const webhookUrl = process.env.NODE_ENV === 'production' 
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/generate/webhook`
+        : undefined;
+
+      let prediction;
+      if (isUsingCustomModel) {
+        const createParams: any = {
+          version: model.includes(":") ? model.split(":")[1] : model,
+          input,
+        };
+        
+        // Only add webhook params if we have a webhook URL
+        if (webhookUrl) {
+          createParams.webhook = webhookUrl;
+          createParams.webhook_events_filter = ["completed"];
+        }
+        
+        prediction = await replicate.predictions.create(createParams);
+      } else {
+        const createParams: any = {
+          model,
+          input,
+        };
+        
+        // Only add webhook params if we have a webhook URL
+        if (webhookUrl) {
+          createParams.webhook = webhookUrl;
+          createParams.webhook_events_filter = ["completed"];
+        }
+        
+        prediction = await replicate.predictions.create(createParams);
+      }
+
+      // Save pending generation
+      const { data: generation } = await supabaseAdmin
+        .from("generations")
+        .insert({
+          user_id: userId,
+          dataset_id: modelId === "base" ? null : modelId,
+          prompt: finalPrompt,
+          image_url: "",
+          prediction_id: prediction.id,
+          status: "generating",
+          settings: {
+            steps: input.num_inference_steps,
+            guidance: input.guidance_scale,
+            model,
+            isUsingCustomModel,
+            seed: seed || null,
+          },
+        })
+        .select()
+        .single();
+
+      return NextResponse.json({
+        generationId: generation?.id,
+        predictionId: prediction.id,
+        status: "generating",
+        estimatedTime: isUsingCustomModel ? "2-3 minutes" : "30-60 seconds"
+      });
+
+    } else {
+      // SYNC: Wait for completion (for base model on localhost)
+      const output = await replicate.run(model, { input });
+      const imageUrl = Array.isArray(output) ? output[0] : output;
+
+      // Save completed generation
+      const { data: generation } = await supabaseAdmin
+        .from("generations")
+        .insert({
+          user_id: userId,
+          dataset_id: null,
+          prompt: finalPrompt,
+          image_url: imageUrl,
+          status: "completed",
+          settings: {
+            steps: input.num_inference_steps,
+            guidance: input.guidance_scale,
+            model,
+            isUsingCustomModel: false,
+            seed: seed || null,
+          },
+        })
+        .select()
+        .single();
+
+      return NextResponse.json({
+        imageUrl,
+        generationId: generation?.id,
+        status: "completed"
+      });
+    }
+
   } catch (error) {
-    console.error('Status check error:', error);
-    return NextResponse.json({ error: 'Failed to check status' }, { status: 500 });
+    console.error("💥 Generation error:", error);
+    return NextResponse.json(
+      { error: `Failed to generate: ${error instanceof Error ? error.message : "Unknown error"}` },
+      { status: 500 }
+    );
   }
 }
 
-export const maxDuration = 15;
+export const maxDuration = 30;

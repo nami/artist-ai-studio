@@ -730,7 +730,10 @@ useEffect(() => {
               ) : (
                 <div className="space-y-3">
                   <button
-                    onClick={() => setSelectedModel("base")}
+                    onClick={() => {
+                      setSelectedModel("base");
+                      setPrompt("");
+                    }}
                     className={`w-full p-3 rounded-lg border-2 transition-all font-mono text-left ${
                       selectedModel === "base"
                         ? "border-cyan-400 bg-cyan-900/30 text-cyan-300"
@@ -763,10 +766,8 @@ useEffect(() => {
                           ? model.model_version.split("/")[1]?.split(":")[0] ||
                             model.subject_name.toLowerCase().replace(/\s+/g, "")
                           : null;
-                        // Add trigger word to prompt if it's not already there
-                        if (triggerWord && !prompt.includes(triggerWord)) {
-                          setPrompt(prompt ? `${triggerWord}, ${prompt}` : `${triggerWord}`);
-                        }
+                        // Set prompt to just the trigger word
+                        setPrompt(triggerWord || "");
                       }}
                       className={`w-full p-3 rounded-lg border-2 transition-all font-mono text-left ${
                         selectedModel === model.id
