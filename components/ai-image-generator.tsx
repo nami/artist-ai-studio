@@ -6,6 +6,7 @@ import { useSaveToGallery } from "@/utils/gallery-storage"
 import { Save, Heart, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSound } from "@/contexts/sound-context"
+import { useAsyncGeneration } from '@/hooks/use-async-generation';
 
 interface AIImageGeneratorProps {
   onBack: () => void;
@@ -265,6 +266,9 @@ export default function AIImageGenerator({
 
   // Real auth hook
   const { user, loading: authLoading } = useAuth();
+  const { generations, isGenerating: isAsyncGenerating, startGeneration, removeGeneration } = useAsyncGeneration();
+  const isAnyGenerating = isGenerating || isAsyncGenerating;
+
 
   // Load trained models from database
   useEffect(() => {
@@ -352,99 +356,116 @@ export default function AIImageGenerator({
     }
   }, [editedImage]);
 
+  // Add this useEffect to handle completed async generations
+useEffect(() => {
+  generations.forEach(gen => {
+    if (gen.status === 'completed' && gen.imageUrl) {
+      // Convert to your existing GeneratedImage format
+      const selectedModelData = trainedModels.find(m => m.id === selectedModel);
+      const newImage: GeneratedImage = {
+        id: gen.id,
+        prompt: gen.prompt,
+        style: selectedStyle,
+        imageUrl: gen.imageUrl,
+        timestamp: new Date().toISOString(),
+        modelId: selectedModel === "base" ? undefined : selectedModel,
+        modelName: selectedModel === "base" ? "Base Model" : selectedModelData?.subject_name,
+        settings: { steps: steps[0], guidance: guidance[0], seed: seed[0] },
+      };
+
+      // Add to your existing generated images (avoid duplicates)
+      setGeneratedImages(prev => {
+        if (prev.some(img => img.id === gen.id)) return prev;
+        return [newImage, ...prev];
+      });
+      
+      // Set as current image
+      setCurrentImage(newImage);
+    }
+  });
+}, [generations, selectedStyle, selectedModel, steps, guidance, seed, trainedModels]);
+
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating || !user?.id) {
       return;
     }
 
-    setIsGenerating(true);
+    // Check if we should use async (for custom models or production)
+    const shouldUseAsync = selectedModel !== "base" || process.env.NODE_ENV === 'production';
 
-    // Combine style with prompt if style is selected
-    let finalPrompt = prompt;
-    if (selectedStyle !== "none") {
-      const styleData = STYLE_PRESETS.find((s) => s.id === selectedStyle);
-      if (styleData) {
-        finalPrompt = `${prompt}, ${styleData.description}`;
-      }
-    }
-
-    try {
-      // Use the real generateImage function from api-client
-      const result = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: finalPrompt,
-          datasetId: selectedModel === "base" ? undefined : selectedModel,
-          steps: steps[0],
-          guidance: guidance[0],
-          seed: seed[0],
-          width: 512,
-          height: 512,
+    if (shouldUseAsync) {
+      // Use async generation
+      try {
+        await startGeneration({
+          prompt,
+          modelId: selectedModel === "base" ? undefined : selectedModel,
           userId: user.id,
-        }),
-      });
-
-      if (!result.ok) {
-        const errorData = await result.json();
-        throw new Error(errorData.error || "Generation failed");
-      }
-
-      const data = await result.json();
-      const selectedModelData = trainedModels.find(
-        (m) => m.id === selectedModel
-      );
-
-      const newImage: GeneratedImage = {
-        id: Math.random().toString(36).substr(2, 9),
-        prompt,
-        style: selectedStyle,
-        imageUrl: data.imageUrl,
-        timestamp: new Date().toISOString(),
-        modelId: selectedModel === "base" ? undefined : selectedModel,
-        modelName:
-          selectedModel === "base"
-            ? "Base Model"
-            : selectedModelData?.subject_name,
-        settings: {
           steps: steps[0],
           guidance: guidance[0],
           seed: seed[0],
-        },
-      };
+        });
 
-      setGeneratedImages((prev) => [
-        newImage,
-        ...prev.filter((img) => img.id !== newImage.id),
-      ]);
-      setCurrentImage(newImage);
-      console.log("Image generated successfully:", data.imageUrl);
-    } catch (error) {
-      console.error("Generation failed:", error);
-      // You can add error toast/notification here if needed
-      alert(
-        `Generation failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    } finally {
-      setIsGenerating(false);
+        // Show success message
+        console.log('Generation started! Your image will appear below when ready.');
+      } catch (error) {
+        console.error('Async generation failed:', error);
+        alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else {
+      // Use original sync generation for base model on localhost
+      setIsGenerating(true);
+
+      try {
+        const result = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            modelId: selectedModel === "base" ? undefined : selectedModel,
+            steps: steps[0],
+            guidance: guidance[0],
+            seed: seed[0],
+            userId: user.id,
+          }),
+        });
+
+        if (!result.ok) {
+          const errorData = await result.json();
+          throw new Error(errorData.error || "Generation failed");
+        }
+
+        const data = await result.json();
+        
+        // Handle sync response (has imageUrl directly)
+        if (data.imageUrl) {
+          const selectedModelData = trainedModels.find(m => m.id === selectedModel);
+          const newImage: GeneratedImage = {
+            id: Math.random().toString(36).substr(2, 9),
+            prompt,
+            style: selectedStyle,
+            imageUrl: data.imageUrl,
+            timestamp: new Date().toISOString(),
+            modelId: selectedModel === "base" ? undefined : selectedModel,
+            modelName: selectedModel === "base" ? "Base Model" : selectedModelData?.subject_name,
+            settings: { steps: steps[0], guidance: guidance[0], seed: seed[0] },
+          };
+
+          setGeneratedImages(prev => [newImage, ...prev]);
+          setCurrentImage(newImage);
+        }
+      } catch (error) {
+        console.error("Generation failed:", error);
+        alert(`Generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      } finally {
+        setIsGenerating(false);
+      }
     }
   }, [
-    prompt,
-    selectedStyle,
-    selectedModel,
-    steps,
-    guidance,
-    seed,
-    isGenerating,
-    trainedModels,
-    user?.id,
+    prompt, selectedStyle, selectedModel, steps, guidance, seed, isGenerating,
+    trainedModels, user?.id, startGeneration
   ]);
 
-  // 🔥 NEW: Handle template selection with trigger word
+  // Handle template selection with trigger word
   const handleTemplateSelect = (example: { prompt: string; emoji: string }) => {
     const selectedModelData = trainedModels.find((m) => m.id === selectedModel);
     let finalPrompt = example.prompt;
@@ -1194,7 +1215,7 @@ export default function AIImageGenerator({
             {/* Generate Button */}
             <button
               onClick={handleGenerate}
-              disabled={!prompt.trim() || isGenerating}
+              disabled={!prompt.trim() || isAnyGenerating}
               className="w-full bg-gradient-to-r from-purple-600 via-pink-500 to-cyan-500 hover:from-purple-500 hover:via-pink-400 hover:to-cyan-400 text-white font-bold font-mono uppercase tracking-wider py-4 sm:py-6 text-lg sm:text-2xl border-2 sm:border-4 border-white/20 shadow-2xl shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-all duration-300 relative overflow-hidden rounded-lg"
             >
               {isGenerating ? (

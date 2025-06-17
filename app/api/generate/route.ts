@@ -7,50 +7,44 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
 
-interface ReplicateInput {
-  prompt: string;
-  num_outputs: number;
-  aspect_ratio: string;
-  output_format: string;
-  output_quality: number;
-  guidance_scale?: number;
-  num_inference_steps?: number;
-  lora_scale?: number;
-  negative_prompt?: string;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
       prompt,
-      datasetId,
+      modelId, // Updated to match your frontend
       userId,
-      style,
-      negativePrompt,
-      controlType,
-      composition,
       steps = 28,
       guidance = 3.5,
-      loraScale = 1.0,
+      seed,
     } = body;
 
-    console.log("🚀 Starting image generation...");
-    console.log("📋 Input params:", {
-      prompt,
-      datasetId: !!datasetId,
-      userId: !!userId,
-      steps,
-      guidance,
-      loraScale,
-    });
+    console.log("🚀 Starting generation...");
 
     let model: `${string}/${string}` = "black-forest-labs/flux-schnell";
     let finalPrompt = prompt;
     let isUsingCustomModel = false;
 
-    // 🔥 FIXED: Model-specific parameter setup
-    let input: ReplicateInput = {
+    // Handle custom model
+    if (modelId && modelId !== "base") {
+      const { data: dataset } = await supabaseAdmin
+        .from("datasets")
+        .select("model_version, trigger_word, training_status")
+        .eq("id", modelId)
+        .single();
+
+      if (dataset?.model_version && dataset?.training_status === "completed") {
+        model = dataset.model_version;
+        isUsingCustomModel = true;
+        
+        if (dataset.trigger_word && !finalPrompt.includes(dataset.trigger_word)) {
+          finalPrompt = `${dataset.trigger_word} ${finalPrompt}`;
+        }
+      }
+    }
+
+    // Prepare input
+    let input: any = {
       prompt: finalPrompt,
       num_outputs: 1,
       aspect_ratio: "1:1",
@@ -58,237 +52,122 @@ export async function POST(request: NextRequest) {
       output_quality: 80,
     };
 
-    if (negativePrompt) {
-      input.negative_prompt = negativePrompt;
+    if (isUsingCustomModel) {
+      input.guidance_scale = guidance;
+      input.num_inference_steps = Math.min(steps, 28);
+      input.lora_scale = 1.0;
+    } else {
+      input.guidance_scale = 0;
+      input.num_inference_steps = Math.min(steps, 4);
     }
 
-    // Handle custom trained model
-    if (datasetId) {
-      console.log("🎯 Looking up custom model for dataset:", datasetId);
+    if (seed) input.seed = seed;
 
-      const { data: dataset } = await supabaseAdmin
-        .from("datasets")
-        .select("model_version, trigger_word, subject_name, training_status")
-        .eq("id", datasetId)
+    // Decide: async vs sync based on model and environment
+    const useAsync = isUsingCustomModel || process.env.NODE_ENV === 'production';
+
+    if (useAsync) {
+      // ASYNC: Start prediction, don't wait
+      const webhookUrl = process.env.NODE_ENV === 'production' 
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/generate/webhook`
+        : undefined;
+
+      let prediction;
+      if (isUsingCustomModel) {
+        const createParams: any = {
+          version: model.includes(":") ? model.split(":")[1] : model,
+          input,
+        };
+        
+        // Only add webhook params if we have a webhook URL
+        if (webhookUrl) {
+          createParams.webhook = webhookUrl;
+          createParams.webhook_events_filter = ["completed", "failed"];
+        }
+        
+        prediction = await replicate.predictions.create(createParams);
+      } else {
+        const createParams: any = {
+          model,
+          input,
+        };
+        
+        // Only add webhook params if we have a webhook URL
+        if (webhookUrl) {
+          createParams.webhook = webhookUrl;
+          createParams.webhook_events_filter = ["completed", "failed"];
+        }
+        
+        prediction = await replicate.predictions.create(createParams);
+      }
+
+      // Save pending generation
+      const { data: generation } = await supabaseAdmin
+        .from("generations")
+        .insert({
+          user_id: userId,
+          dataset_id: modelId === "base" ? null : modelId,
+          prompt: finalPrompt,
+          image_url: "",
+          prediction_id: prediction.id,
+          status: "generating",
+          settings: {
+            steps: input.num_inference_steps,
+            guidance: input.guidance_scale,
+            model,
+            isUsingCustomModel,
+            seed: seed || null,
+          },
+        })
+        .select()
         .single();
 
-      console.log("🔍 DEBUGGING CUSTOM MODEL:");
-      console.log("- dataset found:", !!dataset);
-      console.log("- training_status:", dataset?.training_status);
-      console.log("- model_version:", dataset?.model_version);
-      console.log("- trigger_word:", dataset?.trigger_word);
+      return NextResponse.json({
+        generationId: generation?.id,
+        predictionId: prediction.id,
+        status: "generating",
+        estimatedTime: isUsingCustomModel ? "2-3 minutes" : "30-60 seconds"
+      });
 
-      if (dataset?.model_version && dataset?.training_status === "completed") {
-        console.log(
-          "📋 ✅ Using trained model directly:",
-          dataset.model_version
-        );
-
-        model = dataset.model_version;
-        isUsingCustomModel = true;
-        const triggerWord = dataset.trigger_word;
-
-        if (triggerWord && !finalPrompt.includes(triggerWord)) {
-          finalPrompt = `${triggerWord} ${finalPrompt}`;
-        }
-
-        console.log("✅ TRAINED MODEL DIRECT USAGE:");
-        console.log("- Model:", model);
-        console.log("- Final prompt:", finalPrompt);
-      }
-    }
-
-    // 🔥 FIXED: Set parameters based on model type
-    if (isUsingCustomModel) {
-      // Custom trained model parameters
-      input = {
-        prompt: finalPrompt,
-        num_outputs: 1,
-        aspect_ratio: "1:1",
-        guidance_scale: guidance,
-        num_inference_steps: Math.min(steps, 28), // Custom models can handle more steps
-        output_format: "webp",
-        output_quality: 80,
-        lora_scale: loraScale,
-      };
-
-      if (negativePrompt) {
-        input.negative_prompt = negativePrompt;
-      }
     } else {
-      // Default flux-schnell parameters
-      input = {
-        prompt: finalPrompt,
-        num_outputs: 1,
-        aspect_ratio: "1:1",
-        guidance_scale: 0, // flux-schnell requires guidance_scale = 0
-        num_inference_steps: Math.min(steps, 4), // flux-schnell max 4 steps
-        output_format: "webp",
-        output_quality: 80,
-      };
+      // SYNC: Wait for completion (for base model on localhost)
+      const output = await replicate.run(model, { input });
+      const imageUrl = Array.isArray(output) ? output[0] : output;
 
-      // flux-schnell doesn't support negative prompts in the same way
-      // Remove negative_prompt for schnell
+      // Save completed generation
+      const { data: generation } = await supabaseAdmin
+        .from("generations")
+        .insert({
+          user_id: userId,
+          dataset_id: null,
+          prompt: finalPrompt,
+          image_url: imageUrl,
+          status: "completed",
+          settings: {
+            steps: input.num_inference_steps,
+            guidance: input.guidance_scale,
+            model,
+            isUsingCustomModel: false,
+            seed: seed || null,
+          },
+        })
+        .select()
+        .single();
+
+      return NextResponse.json({
+        imageUrl,
+        generationId: generation?.id,
+        status: "completed"
+      });
     }
 
-    // Add style and composition
-    if (style && style !== "") {
-      finalPrompt = `${finalPrompt}, ${style}`;
-      input.prompt = finalPrompt;
-    }
-
-    if (composition && datasetId) {
-      const compositionPrompts = {
-        sitting: "sitting down, seated position",
-        standing: "standing up, full body standing",
-        running: "running, in motion, dynamic pose",
-        jumping: "jumping in the air, mid-jump",
-        sleeping: "sleeping, lying down, resting",
-        playing: "playing, playful pose",
-      };
-
-      if (compositionPrompts[composition as keyof typeof compositionPrompts]) {
-        finalPrompt = `${finalPrompt}, ${
-          compositionPrompts[composition as keyof typeof compositionPrompts]
-        }`;
-        input.prompt = finalPrompt;
-      }
-    }
-
-    console.log("🔍 FINAL GENERATION SETTINGS:");
-    console.log("- model:", model);
-    console.log("- isUsingCustomModel:", isUsingCustomModel);
-    console.log("- final prompt:", input.prompt);
-    console.log("- steps:", input.num_inference_steps);
-    console.log("- guidance:", input.guidance_scale);
-    if (isUsingCustomModel) console.log("- lora_scale:", input.lora_scale);
-
-    // 🔥 FIXED: Better handling for different model types
-    console.log("🚀 Creating prediction...");
-
-    let imageUrl: string;
-
-    if (isUsingCustomModel) {
-      // For custom models, use predictions API for better control
-      try {
-        const prediction = await replicate.predictions.create({
-          version: model.includes(":") ? model.split(":")[1] : model,
-          input: input,
-        });
-
-        console.log("📋 Prediction created:", prediction.id);
-
-        // Wait for completion
-        let finalPrediction = prediction;
-        let attempts = 0;
-        const maxAttempts = 60;
-
-        while (
-          finalPrediction.status !== "succeeded" &&
-          finalPrediction.status !== "failed" &&
-          attempts < maxAttempts
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          finalPrediction = await replicate.predictions.get(prediction.id);
-          attempts++;
-          console.log(
-            `⏳ Prediction status: ${finalPrediction.status} (${attempts}/${maxAttempts})`
-          );
-        }
-
-        if (finalPrediction.status === "failed") {
-          throw new Error(`Prediction failed: ${finalPrediction.error}`);
-        }
-
-        if (finalPrediction.status !== "succeeded") {
-          throw new Error("Prediction timed out");
-        }
-
-        console.log("📤 Final prediction output:", finalPrediction.output);
-
-        if (Array.isArray(finalPrediction.output)) {
-          imageUrl = finalPrediction.output[0];
-        } else if (typeof finalPrediction.output === "string") {
-          imageUrl = finalPrediction.output;
-        } else {
-          throw new Error("Unexpected output format from prediction");
-        }
-      } catch (predictionError) {
-        console.error("❌ Custom model prediction failed:", predictionError);
-        throw predictionError;
-      }
-    } else {
-      // For default models, use direct run method
-      try {
-        console.log("🏃 Using direct run for default model...");
-        const output = await replicate.run(model, { input });
-        console.log("📤 Direct run output:", output);
-
-        if (Array.isArray(output)) {
-          imageUrl = output[0];
-        } else if (typeof output === "string") {
-          imageUrl = output;
-        } else {
-          throw new Error("Unexpected output format from direct run");
-        }
-      } catch (runError) {
-        console.error("❌ Direct run failed:", runError);
-        throw runError;
-      }
-    }
-
-    // Validate URL
-    if (
-      !imageUrl ||
-      typeof imageUrl !== "string" ||
-      !imageUrl.startsWith("http")
-    ) {
-      throw new Error(`Invalid image URL received: ${imageUrl}`);
-    }
-
-    console.log("📸 Using image URL:", imageUrl);
-
-    // Save to database
-    const { data: generation } = await supabaseAdmin
-      .from("generations")
-      .insert({
-        user_id: userId,
-        dataset_id: datasetId || null,
-        prompt: finalPrompt,
-        negative_prompt: negativePrompt,
-        image_url: imageUrl,
-        settings: {
-          style,
-          controlType,
-          composition,
-          steps: input.num_inference_steps,
-          guidance: input.guidance_scale,
-          model: model,
-          lora_scale: input.lora_scale || null,
-          isUsingCustomModel,
-        },
-      })
-      .select()
-      .single();
-
-    console.log("✅ Image generated successfully:", imageUrl);
-
-    return NextResponse.json({
-      imageUrl,
-      generationId: generation?.id,
-    });
   } catch (error) {
     console.error("💥 Generation error:", error);
     return NextResponse.json(
-      {
-        error: `Failed to generate image: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      },
+      { error: `Failed to generate: ${error instanceof Error ? error.message : "Unknown error"}` },
       { status: 500 }
     );
   }
 }
 
-export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 30;
