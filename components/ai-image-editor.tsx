@@ -24,6 +24,8 @@ import {
   Target,
   Clock,
   Shuffle,
+  Save,
+  Heart,
 } from "lucide-react";
 
 // Import only the essential UI components
@@ -34,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { useSaveToGallery } from "@/utils/gallery-storage"
 
 type Tool = "brush" | "eraser" | "magic" | "rectangle";
 type EditMode = "inpaint" | "outpaint" | "replace";
@@ -134,6 +137,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     height: number;
     ratio: number;
   } | null>(null);
+
+  const { saveImageToGallery } = useSaveToGallery()
+  const [isSaving, setIsSaving] = useState(false)
+  const [recentlySaved, setRecentlySaved] = useState<string | null>(null)
 
   // Simple toast function
   const showToast = (
@@ -955,6 +962,40 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       "success"
     );
   };
+
+  // Save edited image to gallery
+  const handleSaveEditToGallery = async () => {
+    if (!result) return
+    
+    setIsSaving(true)
+    
+    // Create a description for the edited image
+    const editDescription = originalImageData 
+      ? `${originalImageData.prompt} (edited: ${prompt})`
+      : `Edited image: ${prompt}`
+    
+    const saveResult = saveImageToGallery({
+      prompt: editDescription,
+      style: originalImageData?.style || 'edited',
+      imageUrl: result,
+      settings: originalImageData?.settings || {
+        steps: 30,
+        guidance: 7.5, 
+        seed: Math.floor(Math.random() * 1000000)
+      }
+    })
+
+    if (saveResult.success && saveResult.image) {
+      setRecentlySaved(saveResult.image.id)
+      showToast('Edited image saved to gallery! 🎨', 'success')
+      
+      setTimeout(() => setRecentlySaved(null), 3000)
+    } else {
+      showToast('Failed to save edited image to gallery', 'error')
+    }
+    
+    setIsSaving(false)
+  }
 
   if (!isClient) {
     return null;
@@ -1813,6 +1854,30 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     className="w-full font-mono text-xs border-red-400/50 text-red-300 hover:bg-red-500/20"
                   >
                     🚨 EMERGENCY CLEAR RESULT
+                  </Button>
+
+                  <Button
+                    onClick={handleSaveEditToGallery}
+                    disabled={isSaving || !result}
+                    size="sm"
+                    className="w-full font-mono text-xs bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 mb-2"
+                  >
+                    {isSaving ? (
+                      <div className="flex items-center gap-2">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        SAVING...
+                      </div>
+                    ) : recentlySaved ? (
+                      <div className="flex items-center gap-2">
+                        <Heart className="w-3 h-3 text-red-400 fill-current" />
+                        SAVED!
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Save className="w-3 h-3" />
+                        💾 SAVE TO GALLERY
+                      </div>
+                    )}
                   </Button>
 
                   <div className="text-xs font-mono text-gray-400 bg-black/30 p-2 rounded border border-emerald-400/20">

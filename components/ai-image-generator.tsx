@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useSaveToGallery } from "@/utils/gallery-storage"
+import { Save, Heart, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useSound } from "@/contexts/sound-context"
 
 interface AIImageGeneratorProps {
   onBack: () => void;
@@ -252,6 +256,10 @@ export default function AIImageGenerator({
   const [animatedElements, setAnimatedElements] = useState<AnimatedElement[]>(
     []
   );
+  const { saveImageToGallery } = useSaveToGallery()
+  const [isSaving, setIsSaving] = useState(false)
+  const [recentlySaved, setRecentlySaved] = useState<string | null>(null)
+  const { play: playSound } = useSound()
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -524,6 +532,45 @@ export default function AIImageGenerator({
       minute: "2-digit",
     });
   };
+
+  // Simple toast function
+  const showToast = (
+    message: string,
+    type: "success" | "error" | "info" = "info"
+  ) => {
+    console.log(`${type.toUpperCase()}: ${message}`);
+    if (typeof window !== "undefined" && "alert" in window) {
+      if (type === "error") {
+        alert(`Error: ${message}`);
+      }
+    }
+  };
+
+  // Save to gallery function
+  const handleSaveToGallery = async (imageUrl: string, prompt: string, style: string, settings: any) => {
+    setIsSaving(true)
+    
+    const result = saveImageToGallery({
+      prompt: prompt.trim(),
+      style: style,
+      imageUrl: imageUrl,
+      settings: settings
+    })
+
+    if (result.success && result.image) {
+      setRecentlySaved(result.image.id)
+      showToast('Image saved to gallery! 🎨', 'success')
+      playSound?.('complete')
+      
+      // Clear the "recently saved" state after 3 seconds
+      setTimeout(() => setRecentlySaved(null), 3000)
+    } else {
+      showToast('Failed to save image to gallery', 'error')
+      playSound?.('error')
+    }
+    
+    setIsSaving(false)
+  }
 
   if (!isClient) {
     return null;
@@ -1218,6 +1265,28 @@ export default function AIImageGenerator({
                     >
                       💾 DOWNLOAD MASTERPIECE
                     </button>
+                    <Button
+                      onClick={() => handleSaveToGallery(currentImage.imageUrl, currentImage.prompt, currentImage.style, currentImage.settings)}
+                      disabled={isSaving}
+                      className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 font-mono text-sm py-4 uppercase tracking-wide disabled:opacity-50"
+                    >
+                      {isSaving ? (
+                        <div className="flex items-center gap-2">
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          SAVING...
+                        </div>
+                      ) : recentlySaved ? (
+                        <div className="flex items-center gap-2">
+                          <Heart className="w-4 h-4 text-red-400 fill-current" />
+                          SAVED TO GALLERY!
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Save className="w-4 h-4" />
+                          SAVE TO GALLERY
+                        </div>
+                      )}
+                    </Button>
                   </div>
                 </div>
               ) : (
