@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
         // Only add webhook params if we have a webhook URL
         if (webhookUrl) {
           createParams.webhook = webhookUrl;
-          createParams.webhook_events_filter = ["completed", "failed"];
+          createParams.webhook_events_filter = ["completed"];
         }
         
         prediction = await replicate.predictions.create(createParams);
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
         // Only add webhook params if we have a webhook URL
         if (webhookUrl) {
           createParams.webhook = webhookUrl;
-          createParams.webhook_events_filter = ["completed", "failed"];
+          createParams.webhook_events_filter = ["completed"];
         }
         
         prediction = await replicate.predictions.create(createParams);
