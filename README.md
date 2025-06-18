@@ -1,6 +1,6 @@
 # Artist AI Studio
 
-> **Take back control of your creativity.** Train AI on *your* art, generate with *your* style, keep *your* vision intact.
+> **Take back control of your creativity.** Train AI on _your_ art, generate with _your_ style, keep _your_ vision intact.
 
 ## 🎨 For Creatives, By Creatives
 
@@ -20,7 +20,7 @@ Generate infinite variations in your signature style. Explore new ideas faster t
 Built for working artists. Manage your AI-generated portfolio, track your creative process, and maintain quality control over every piece.
 
 **🎯 Your Art, Your Rules**  
-Every generation is powered by models you trained, using artwork you created. The AI works *for* you, not against you.
+Every generation is powered by models you trained, using artwork you created. The AI works _for_ you, not against you.
 
 ---
 
@@ -30,6 +30,7 @@ Every generation is powered by models you trained, using artwork you created. Th
 - **⚡ Lightning-Fast Generation** - Create new artwork in seconds with your personalized AI
 - **✏️ Advanced Editing Tools** - Fine-tune your AI creations to perfection
 - **🖼️ Smart Gallery Management** - Organize and showcase your AI-generated portfolio
+
 ---
 
 ## 🏗️ Built for Artists Who Mean Business
@@ -62,16 +63,19 @@ artist-ai-studio/
 ### Prerequisites
 
 1. **Install Homebrew** (if needed)
+
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
 2. **Install Node.js** (v20 or later)
+
    ```bash
    brew install node
    ```
 
 3. **Install pnpm** (Fast, disk space efficient package manager)
+
    ```bash
    brew install pnpm
    ```
@@ -84,26 +88,30 @@ artist-ai-studio/
 ### Get Started
 
 1. **Clone & Navigate**
+
    ```bash
    git clone https://github.com/nami/artist-ai-studio.git
    cd artist-ai-studio
    ```
 
 2. **Install Dependencies**
+
    ```bash
    pnpm install
    ```
 
 3. **Environment Setup**
+
    ```bash
    # Link to your Vercel project
    vercel link
-   
+
    # Pull your environment variables
    vercel env pull
    ```
-   
+
    Required environment variables:
+
    ```env
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
@@ -113,10 +121,11 @@ artist-ai-studio/
    ```
 
 4. **Launch Your Creative Studio**
+
    ```bash
    pnpm dev
    ```
-   
+
    🎉 Your studio opens at [http://localhost:3000](http://localhost:3000)
 
 ---
@@ -146,16 +155,19 @@ vercel deploy --prod
 ## 🛠️ Troubleshooting
 
 **Build Issues?**
+
 - Verify all environment variables are set
 - Check Node.js version: `node --version`
 - Reinstall pnpm if needed: `brew reinstall pnpm`
 
 **Vercel CLI Problems?**
+
 - Authenticate: `vercel login`
 - Verify project linking
 - Reinstall if needed: `brew reinstall pnpm && pnpm add -g vercel`
 
 **Permission Errors?**
+
 ```bash
 sudo chown -R $(whoami) /usr/local/lib/node_modules
 ```
@@ -164,11 +176,13 @@ sudo chown -R $(whoami) /usr/local/lib/node_modules
 
 ## 🎯 Tech Stack
 
-**Frontend:** Next.js 14, TypeScript, Tailwind CSS  
-**Backend:** Edge Runtime API, Supabase  
-**AI Platform:** Replicate API  
-**Deployment:** Vercel  
-**Storage:** Vercel Blob
+**Frontend:** Next.js 15.3.3 (App Router), TypeScript 5.x, Tailwind CSS 3.4.1  
+**UI Components:** Radix UI, Framer Motion, Lucide React  
+**Backend:** Next.js App Router API Routes, Supabase PostgreSQL  
+**AI Platform:** Replicate API with custom model training  
+**Deployment:** Vercel with Edge Runtime  
+**Storage:** Hybrid (Vercel Blob + Browser Storage + Supabase)  
+**Development:** Cursor IDE with Claude Sonnet 4.0, pnpm, Turbopack
 
 ---
 
@@ -185,4 +199,4 @@ Dive deeper into the technologies powering your creative studio:
 
 **Ready to revolutionize your creative process?** 🚀
 
-*Built with ❤️ for the creative community*
+_Built with ❤️ for the creative community_
