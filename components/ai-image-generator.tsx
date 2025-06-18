@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useSaveToGallery } from "@/utils/gallery-storage"
-import { Save, Heart, RefreshCw } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useSound } from "@/contexts/sound-context"
-import { useAsyncGeneration } from '@/hooks/use-async-generation';
+import { useSaveToGallery } from "@/utils/gallery-storage";
+import { Save, Heart, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSound } from "@/contexts/sound-context";
+import { useAsyncGeneration } from "@/hooks/use-async-generation";
 
 interface AIImageGeneratorProps {
   onBack: () => void;
@@ -250,6 +250,19 @@ export default function AIImageGenerator({
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [currentImage, setCurrentImage] = useState<GeneratedImage | null>(null);
+
+  // Debug logging for currentImage changes
+  useEffect(() => {
+    if (currentImage) {
+      console.log(
+        "✨ Current image updated:",
+        currentImage.id,
+        currentImage.prompt.substring(0, 20)
+      );
+    } else {
+      console.log("✨ Current image cleared");
+    }
+  }, [currentImage]);
   const [steps, setSteps] = useState<number[]>([20]);
   const [guidance, setGuidance] = useState<number[]>([7.5]);
   const [seed, setSeed] = useState<number[]>([]);
@@ -257,18 +270,21 @@ export default function AIImageGenerator({
   const [animatedElements, setAnimatedElements] = useState<AnimatedElement[]>(
     []
   );
-  const { saveImageToGallery } = useSaveToGallery()
-  const [isSaving, setIsSaving] = useState(false)
-  const [recentlySaved, setRecentlySaved] = useState<string | null>(null)
-  const { play: playSound } = useSound()
+  const { saveImageToGallery } = useSaveToGallery();
+  const [isSaving, setIsSaving] = useState(false);
+  const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
+  const { play: playSound } = useSound();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Real auth hook
   const { user, loading: authLoading } = useAuth();
-  const { generations, isGenerating: isAsyncGenerating, startGeneration, removeGeneration } = useAsyncGeneration();
+  const {
+    generations,
+    isGenerating: isAsyncGenerating,
+    startGeneration,
+  } = useAsyncGeneration();
   const isAnyGenerating = isGenerating || isAsyncGenerating;
-
 
   // Load trained models from database
   useEffect(() => {
@@ -357,33 +373,55 @@ export default function AIImageGenerator({
   }, [editedImage]);
 
   // Add this useEffect to handle completed async generations
-useEffect(() => {
-  generations.forEach(gen => {
-    if (gen.status === 'completed' && gen.imageUrl) {
+  useEffect(() => {
+    // Find the most recent completed generation that hasn't been processed yet
+    const completedGenerations = generations.filter(
+      (gen) => gen.status === "completed" && gen.imageUrl
+    );
+
+    // Process only new generations (generations array is already ordered by recency)
+    const newGenerations = completedGenerations.filter(
+      (gen) => !generatedImages.some((img) => img.id === gen.id)
+    );
+
+    // Process each new generation
+    newGenerations.forEach((gen, index) => {
       // Convert to your existing GeneratedImage format
-      const selectedModelData = trainedModels.find(m => m.id === selectedModel);
+      const selectedModelData = trainedModels.find(
+        (m) => m.id === selectedModel
+      );
       const newImage: GeneratedImage = {
         id: gen.id,
         prompt: gen.prompt,
         style: selectedStyle,
-        imageUrl: gen.imageUrl,
+        imageUrl: gen.imageUrl || "",
         timestamp: new Date().toISOString(),
         modelId: selectedModel === "base" ? undefined : selectedModel,
-        modelName: selectedModel === "base" ? "Base Model" : selectedModelData?.subject_name,
+        modelName:
+          selectedModel === "base"
+            ? "Base Model"
+            : selectedModelData?.subject_name || "Unknown Model",
         settings: { steps: steps[0], guidance: guidance[0], seed: seed[0] },
       };
 
-      // Add to your existing generated images (avoid duplicates)
-      setGeneratedImages(prev => {
-        if (prev.some(img => img.id === gen.id)) return prev;
-        return [newImage, ...prev];
-      });
-      
-      // Set as current image
-      setCurrentImage(newImage);
-    }
-  });
-}, [generations, selectedStyle, selectedModel, steps, guidance, seed, trainedModels]);
+      // Add to your existing generated images
+      setGeneratedImages((prev) => [newImage, ...prev]);
+
+      // Set as current image (only the first/most recent new generation)
+      if (index === 0) {
+        setCurrentImage(newImage);
+      }
+    });
+  }, [
+    generations,
+    selectedStyle,
+    selectedModel,
+    steps,
+    guidance,
+    seed,
+    trainedModels,
+    generatedImages,
+  ]);
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating || !user?.id) {
@@ -391,7 +429,8 @@ useEffect(() => {
     }
 
     // Check if we should use async (for custom models or production)
-    const shouldUseAsync = selectedModel !== "base" || process.env.NODE_ENV === 'production';
+    const shouldUseAsync =
+      selectedModel !== "base" || process.env.NODE_ENV === "production";
 
     if (shouldUseAsync) {
       // Use async generation
@@ -406,10 +445,16 @@ useEffect(() => {
         });
 
         // Show success message
-        console.log('Generation started! Your image will appear below when ready.');
+        console.log(
+          "Generation started! Your image will appear below when ready."
+        );
       } catch (error) {
-        console.error('Async generation failed:', error);
-        alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error("Async generation failed:", error);
+        alert(
+          `Generation failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
     } else {
       // Use original sync generation for base model on localhost
@@ -435,10 +480,12 @@ useEffect(() => {
         }
 
         const data = await result.json();
-        
+
         // Handle sync response (has imageUrl directly)
         if (data.imageUrl) {
-          const selectedModelData = trainedModels.find(m => m.id === selectedModel);
+          const selectedModelData = trainedModels.find(
+            (m) => m.id === selectedModel
+          );
           const newImage: GeneratedImage = {
             id: Math.random().toString(36).substr(2, 9),
             prompt,
@@ -446,23 +493,38 @@ useEffect(() => {
             imageUrl: data.imageUrl,
             timestamp: new Date().toISOString(),
             modelId: selectedModel === "base" ? undefined : selectedModel,
-            modelName: selectedModel === "base" ? "Base Model" : selectedModelData?.subject_name,
+            modelName:
+              selectedModel === "base"
+                ? "Base Model"
+                : selectedModelData?.subject_name,
             settings: { steps: steps[0], guidance: guidance[0], seed: seed[0] },
           };
 
-          setGeneratedImages(prev => [newImage, ...prev]);
+          setGeneratedImages((prev) => [newImage, ...prev]);
           setCurrentImage(newImage);
         }
       } catch (error) {
         console.error("Generation failed:", error);
-        alert(`Generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        alert(
+          `Generation failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       } finally {
         setIsGenerating(false);
       }
     }
   }, [
-    prompt, selectedStyle, selectedModel, steps, guidance, seed, isGenerating,
-    trainedModels, user?.id, startGeneration
+    prompt,
+    selectedStyle,
+    selectedModel,
+    steps,
+    guidance,
+    seed,
+    isGenerating,
+    trainedModels,
+    user?.id,
+    startGeneration,
   ]);
 
   // Handle template selection with trigger word
@@ -568,30 +630,38 @@ useEffect(() => {
   };
 
   // Save to gallery function
-  const handleSaveToGallery = async (imageUrl: string, prompt: string, style: string, settings: any) => {
-    setIsSaving(true)
-    
+  const handleSaveToGallery = async (
+    imageUrl: string,
+    prompt: string,
+    style: string,
+    settings: { steps: number; guidance: number; seed?: number }
+  ) => {
+    setIsSaving(true);
+
     const result = saveImageToGallery({
       prompt: prompt.trim(),
       style: style,
       imageUrl: imageUrl,
-      settings: settings
-    })
+      settings: {
+        ...settings,
+        seed: settings.seed ?? Math.floor(Math.random() * 1000000),
+      },
+    });
 
     if (result.success && result.image) {
-      setRecentlySaved(result.image.id)
-      showToast('Image saved to gallery! 🎨', 'success')
-      playSound?.('complete')
-      
+      setRecentlySaved(result.image.id);
+      showToast("Image saved to gallery! 🎨", "success");
+      playSound?.("complete");
+
       // Clear the "recently saved" state after 3 seconds
-      setTimeout(() => setRecentlySaved(null), 3000)
+      setTimeout(() => setRecentlySaved(null), 3000);
     } else {
-      showToast('Failed to save image to gallery', 'error')
-      playSound?.('error')
+      showToast("Failed to save image to gallery", "error");
+      playSound?.("error");
     }
-    
-    setIsSaving(false)
-  }
+
+    setIsSaving(false);
+  };
 
   if (!isClient) {
     return null;
@@ -1225,6 +1295,12 @@ useEffect(() => {
                   <span className="animate-pulse">CREATING MAGIC...</span>
                   <span className="hidden sm:block animate-bounce">✨</span>
                 </div>
+              ) : isAsyncGenerating ? (
+                <div className="flex items-center justify-center gap-2 sm:gap-4">
+                  <div className="w-5 h-5 sm:w-8 sm:h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="animate-pulse">AI WORKING...</span>
+                  <span className="hidden sm:block animate-bounce">🤖</span>
+                </div>
               ) : (
                 <div className="flex items-center justify-center gap-2 sm:gap-4">
                   <span className="animate-pulse">⚡</span>
@@ -1233,6 +1309,36 @@ useEffect(() => {
                 </div>
               )}
             </button>
+
+            {/* Active Generations Status */}
+            {generations.filter((gen) => gen.status === "generating").length >
+              0 && (
+              <div className="bg-gradient-to-r from-yellow-900/50 to-orange-900/50 border-2 border-yellow-400/50 rounded-lg p-3 mt-4">
+                <h4 className="text-yellow-300 font-mono text-sm font-bold mb-2 flex items-center gap-2">
+                  🔄 ACTIVE GENERATIONS
+                </h4>
+                <div className="space-y-2">
+                  {generations
+                    .filter((gen) => gen.status === "generating")
+                    .map((gen) => (
+                      <div
+                        key={gen.id}
+                        className="flex items-center justify-between bg-black/30 rounded p-2"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+                          <span className="text-yellow-300 font-mono text-xs truncate">
+                            {gen.prompt.substring(0, 40)}...
+                          </span>
+                        </div>
+                        <span className="text-yellow-400 font-mono text-xs flex-shrink-0">
+                          {gen.estimatedTime || "Processing..."}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Sidebar - Image Preview */}
@@ -1300,7 +1406,14 @@ useEffect(() => {
                         💾 DOWNLOAD MASTERPIECE
                       </button>
                       <Button
-                        onClick={() => handleSaveToGallery(currentImage.imageUrl, currentImage.prompt, currentImage.style, currentImage.settings)}
+                        onClick={() =>
+                          handleSaveToGallery(
+                            currentImage.imageUrl,
+                            currentImage.prompt,
+                            currentImage.style,
+                            currentImage.settings
+                          )
+                        }
                         disabled={isSaving}
                         className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 font-mono text-sm py-4 uppercase tracking-wide disabled:opacity-50"
                       >
@@ -1352,7 +1465,16 @@ useEffect(() => {
                       {generatedImages.map((image, index) => (
                         <button
                           key={image.id}
-                          onClick={() => setCurrentImage(image)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log(
+                              "🖼️ Archive image clicked:",
+                              image.id,
+                              image.prompt.substring(0, 20)
+                            );
+                            setCurrentImage(image);
+                          }}
                           className="w-full p-2 sm:p-3 bg-gradient-to-r from-gray-800/50 to-cyan-800/30 hover:from-cyan-700/50 hover:to-blue-700/30 border-2 border-gray-600/30 hover:border-cyan-400/50 rounded-lg transition-all text-left group"
                         >
                           <div className="flex gap-2 sm:gap-3">
