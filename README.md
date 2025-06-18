@@ -1,5 +1,7 @@
 # Artist AI Studio
 
+![screencapture-artist-ai-studio-vercel-app-2025-06-19-02_13_59](https://github.com/user-attachments/assets/4c8200e4-3190-44e9-9a85-0b90d483cde9)
+
 > **Take back control of your creativity.** Train AI on _your_ art, generate with _your_ style, keep _your_ vision intact.
 
 ## 🎨 For Creatives, By Creatives
@@ -26,10 +28,25 @@ Every generation is powered by models you trained, using artwork you created. Th
 
 ## 🔥 What You Get
 
+
 - **🎨 Custom AI Training** - Train models on your own artwork to preserve your unique style
+
+![screencapture-artist-ai-studio-vercel-app-training-2025-06-19-02_14_29](https://github.com/user-attachments/assets/0cc35961-15a4-4943-b294-4620c04881ad)
+
+![screencapture-artist-ai-studio-vercel-app-dashboard-n0h4dcnafxrma0cqfx3tgq2tv0-2025-06-19-01_21_55](https://github.com/user-attachments/assets/cff3a937-735f-4b78-b86b-148e1d417ab1)
+
 - **⚡ Lightning-Fast Generation** - Create new artwork in seconds with your personalized AI
+
+![screencapture-artist-ai-studio-vercel-app-generate-2025-06-19-01_58_13](https://github.com/user-attachments/assets/fc22031f-eefe-44ea-a7cd-bccab3c7d74f)
+
 - **✏️ Advanced Editing Tools** - Fine-tune your AI creations to perfection
+
+![screencapture-artist-ai-studio-vercel-app-edit-2025-06-19-01_59_39](https://github.com/user-attachments/assets/7496f78a-258c-46a0-9586-cdb1e917bcc2)
+
+
 - **🖼️ Smart Gallery Management** - Organize and showcase your AI-generated portfolio
+
+![screencapture-artist-ai-studio-vercel-app-gallery-2025-06-19-02_16_36](https://github.com/user-attachments/assets/067c201a-4178-4ca3-a0c7-e4ccc75dbf49)
 
 ---
 
@@ -177,7 +194,7 @@ sudo chown -R $(whoami) /usr/local/lib/node_modules
 ## 🎯 Tech Stack
 
 **Frontend:** Next.js 15.3.3 (App Router), TypeScript 5.x, Tailwind CSS 3.4.1  
-**UI Components:** Radix UI, Framer Motion, Lucide React  
+**UI Components:** Radix UI, Framer Motion, Lucide React (Initially v0 generated)
 **Backend:** Next.js App Router API Routes, Supabase PostgreSQL  
 **AI Platform:** Replicate API with custom model training  
 **Deployment:** Vercel with Edge Runtime  
