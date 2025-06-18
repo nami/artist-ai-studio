@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useSaveToGallery } from "@/utils/gallery-storage"
+import { useSaveToGallery } from "@/utils/gallery-storage";
 
 type Tool = "brush" | "eraser" | "magic" | "rectangle";
 type EditMode = "inpaint" | "outpaint" | "replace";
@@ -138,9 +138,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     ratio: number;
   } | null>(null);
 
-  const { saveImageToGallery } = useSaveToGallery()
-  const [isSaving, setIsSaving] = useState(false)
-  const [recentlySaved, setRecentlySaved] = useState<string | null>(null)
+  const { saveImageToGallery } = useSaveToGallery();
+  const [isSaving, setIsSaving] = useState(false);
+  const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
 
   // Simple toast function for user feedback
   const showToast = (
@@ -848,37 +848,37 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
   // Save edited image to gallery
   const handleSaveEditToGallery = async () => {
-    if (!result) return
-    
-    setIsSaving(true)
-    
+    if (!result) return;
+
+    setIsSaving(true);
+
     // Create description for the edited image
-    const editDescription = originalImageData 
+    const editDescription = originalImageData
       ? `${originalImageData.prompt} (edited: ${prompt})`
-      : `Edited image: ${prompt}`
-    
+      : `Edited image: ${prompt}`;
+
     const saveResult = saveImageToGallery({
       prompt: editDescription,
-      style: originalImageData?.style || 'edited',
+      style: originalImageData?.style || "edited",
       imageUrl: result,
       settings: originalImageData?.settings || {
         steps: 30,
-        guidance: 7.5, 
-        seed: Math.floor(Math.random() * 1000000)
-      }
-    })
+        guidance: 7.5,
+        seed: Math.floor(Math.random() * 1000000),
+      },
+    });
 
     if (saveResult.success && saveResult.image) {
-      setRecentlySaved(saveResult.image.id)
-      showToast('Edited image saved to gallery! 🎨', 'success')
-      
-      setTimeout(() => setRecentlySaved(null), 3000)
+      setRecentlySaved(saveResult.image.id);
+      showToast("Edited image saved to gallery! 🎨", "success");
+
+      setTimeout(() => setRecentlySaved(null), 3000);
     } else {
-      showToast('Failed to save edited image to gallery', 'error')
+      showToast("Failed to save edited image to gallery", "error");
     }
-    
-    setIsSaving(false)
-  }
+
+    setIsSaving(false);
+  };
 
   if (!isClient) {
     return null;
@@ -1360,7 +1360,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                   CANVAS EDITOR
                 </Label>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-xs text-white">
+                  <Badge
+                    variant="outline"
+                    className="font-mono text-xs text-white"
+                  >
                     {tool.toUpperCase()}
                   </Badge>
                   <div className="flex items-center gap-1">
@@ -1661,8 +1664,8 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                       size="sm"
                       className="w-full font-mono text-xs bg-emerald-900/80 text-emerald-100 border-2 border-emerald-500/30 hover:bg-emerald-800/90 hover:border-emerald-400/50 hover:text-emerald-50 transition-colors mb-2"
                     >
-                      <Check className="w-3 h-3 mr-1" />ACCEPT & CONTINUE
-                      EDITING
+                      <Check className="w-3 h-3 mr-1" />
+                      ACCEPT & CONTINUE EDITING
                     </Button>
 
                     <Button

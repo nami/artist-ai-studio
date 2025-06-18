@@ -20,19 +20,6 @@ interface EditedImage {
   };
 }
 
-interface GeneratedImage {
-  id: string;
-  prompt: string;
-  style: string;
-  imageUrl: string;
-  timestamp: Date;
-  settings: {
-    steps: number;
-    guidance: number;
-    seed: number;
-  };
-}
-
 const convertToGeneratedImage = (image: EditedImage | null) => {
   if (!image) return undefined;
   return {
@@ -40,8 +27,8 @@ const convertToGeneratedImage = (image: EditedImage | null) => {
     timestamp: image.timestamp.toISOString(),
     settings: {
       ...image.settings,
-      seed: image.settings.seed || 0
-    }
+      seed: image.settings.seed || 0,
+    },
   };
 };
 
@@ -94,7 +81,10 @@ export default function GeneratePage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-black">
-        <AIImageGenerator onBack={handleBack} editedImage={convertToGeneratedImage(editedImage)} />
+        <AIImageGenerator
+          onBack={handleBack}
+          editedImage={convertToGeneratedImage(editedImage)}
+        />
       </div>
     </ProtectedRoute>
   );
