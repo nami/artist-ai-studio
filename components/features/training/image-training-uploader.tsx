@@ -1,436 +1,503 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useState, useCallback, useRef, useEffect } from "react"
-import { Upload, X, ImageIcon, AlertTriangle, Star, Zap, User, Palette, Camera, Building, Loader2, FileWarning } from 'lucide-react'
-import { Button } from "@/components/ui/button"
-import { useSound } from "@/contexts/sound-context"
-import { ImageModal } from "@/components/image-modal"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/hooks/use-auth"
-import { uploadImages } from "@/lib/api-client"
-import { useToast } from "@/hooks/use-toast"
-import { nanoid } from 'nanoid'
+import type React from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  Upload,
+  X,
+  ImageIcon,
+  AlertTriangle,
+  Star,
+  Zap,
+  User,
+  Palette,
+  Camera,
+  Building,
+  Loader2,
+  FileWarning,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSound } from "@/contexts/sound-context";
+import { ImageModal } from "@/components/image-modal";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
+import { uploadImages } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
+import { nanoid } from "nanoid";
 
 interface FileWithPreview extends File {
-  id: string
-  preview: string
-  progress: number
-  status: "uploading" | "completed" | "error"
-  uploadedUrl?: string
-  sizeWarning?: boolean
+  id: string;
+  preview: string;
+  progress: number;
+  status: "uploading" | "completed" | "error";
+  uploadedUrl?: string;
+  sizeWarning?: boolean;
 }
 
 interface UploadedImage {
-  id: string
-  preview: string
-  name: string
+  id: string;
+  preview: string;
+  name: string;
 }
 
 const SUBJECT_TYPES = [
-  { id: "person", label: "Person", icon: User, description: "Faces, portraits, people" },
-  { id: "style", label: "Art Style", icon: Palette, description: "Artistic styles, aesthetics" },
-  { id: "object", label: "Object", icon: Camera, description: "Products, items, things" },
-  { id: "concept", label: "Concept", icon: Building, description: "Brands, logos, concepts" },
-]
+  {
+    id: "person",
+    label: "Person",
+    icon: User,
+    description: "Faces, portraits, people",
+  },
+  {
+    id: "style",
+    label: "Art Style",
+    icon: Palette,
+    description: "Artistic styles, aesthetics",
+  },
+  {
+    id: "object",
+    label: "Object",
+    icon: Camera,
+    description: "Products, items, things",
+  },
+  {
+    id: "concept",
+    label: "Concept",
+    icon: Building,
+    description: "Brands, logos, concepts",
+  },
+];
 
-// Size limits to prevent network timeouts
-const MAX_FILE_SIZE_MB = 2 // 2MB per file
-const MAX_TOTAL_SIZE_MB = 8 // 8MB total to stay under 10MB ZIP
-const MAX_FILES = 15 // Maximum 15 files allowed
-const MIN_FILES = 10 // Minimum 10 files required for training
+// Size limits to work within Vercel's 4.5MB serverless function limit
+const MAX_FILE_SIZE_MB = 1.5; // 1.5MB per file (reduced from 2MB)
+const MAX_TOTAL_SIZE_MB = 4; // 4MB total (reduced from 8MB to stay under 4.5MB limit)
+const MAX_FILES = 15; // Maximum 15 files allowed
+const MIN_FILES = 10; // Minimum 10 files required for training
 
 export default function ImageTrainingUploader() {
-  const [files, setFiles] = useState<FileWithPreview[]>([])
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [validationMessage, setValidationMessage] = useState<string>("")
-  const [sizeWarning, setSizeWarning] = useState<string>("")
-  const [score, setScore] = useState(0)
-  const [previousLevel, setPreviousLevel] = useState(1)
-  const [selectedFile, setSelectedFile] = useState<FileWithPreview | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [completedFiles, setCompletedFiles] = useState(0)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [isStartingTraining, setIsStartingTraining] = useState(false)
-  const { play, initialize } = useSound()
-  const router = useRouter()
-  const { user } = useAuth()
-  const { toast } = useToast()
-  
+  const [files, setFiles] = useState<FileWithPreview[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [validationMessage, setValidationMessage] = useState<string>("");
+  const [sizeWarning, setSizeWarning] = useState<string>("");
+  const [score, setScore] = useState(0);
+  const [previousLevel, setPreviousLevel] = useState(1);
+  const [selectedFile, setSelectedFile] = useState<FileWithPreview | null>(
+    null
+  );
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [completedFiles, setCompletedFiles] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isStartingTraining, setIsStartingTraining] = useState(false);
+  const { play, initialize } = useSound();
+  const router = useRouter();
+  const { user } = useAuth();
+  const { toast } = useToast();
+
   // Training form state
-  const [subjectName, setSubjectName] = useState("")
-  const [subjectType, setSubjectType] = useState("person")
-  const [showTrainingForm, setShowTrainingForm] = useState(false)
-  
+  const [subjectName, setSubjectName] = useState("");
+  const [subjectType, setSubjectType] = useState("person");
+  const [showTrainingForm, setShowTrainingForm] = useState(false);
+
   // Keep track of active upload intervals for cleanup
-  const activeIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  const activeIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   // Initialize sound system on first user interaction
   useEffect(() => {
     const handleFirstInteraction = () => {
-      initialize()
-      document.removeEventListener("click", handleFirstInteraction)
-    }
+      initialize();
+      document.removeEventListener("click", handleFirstInteraction);
+    };
 
-    document.addEventListener("click", handleFirstInteraction)
+    document.addEventListener("click", handleFirstInteraction);
 
     return () => {
-      document.removeEventListener("click", handleFirstInteraction)
-    }
-  }, [initialize])
+      document.removeEventListener("click", handleFirstInteraction);
+    };
+  }, [initialize]);
 
   // Cleanup intervals on unmount
   useEffect(() => {
     return () => {
       // Clear all active intervals when component unmounts
       activeIntervalsRef.current.forEach((interval) => {
-        clearInterval(interval)
-      })
-      activeIntervalsRef.current.clear()
-    }
-  }, [])
+        clearInterval(interval);
+      });
+      activeIntervalsRef.current.clear();
+    };
+  }, []);
 
   // Check file sizes and update warnings
   const checkFileSizes = (allFiles: FileWithPreview[]) => {
-    const totalSizeBytes = allFiles.reduce((sum, file) => sum + file.size, 0)
-    const totalSizeMB = totalSizeBytes / (1024 * 1024)
-    
-    const largeFiles = allFiles.filter(file => (file.size / (1024 * 1024)) > MAX_FILE_SIZE_MB)
-    
+    const totalSizeBytes = allFiles.reduce((sum, file) => sum + file.size, 0);
+    const totalSizeMB = totalSizeBytes / (1024 * 1024);
+
+    const largeFiles = allFiles.filter(
+      (file) => file.size / (1024 * 1024) > MAX_FILE_SIZE_MB
+    );
+
     if (largeFiles.length > 0) {
-      setSizeWarning(`⚠️ ${largeFiles.length} FILES OVER ${MAX_FILE_SIZE_MB}MB • TRAINING MAY TIMEOUT`)
+      setSizeWarning(
+        `⚠️ ${largeFiles.length} FILES OVER ${MAX_FILE_SIZE_MB}MB • TRAINING MAY TIMEOUT`
+      );
     } else if (totalSizeMB > MAX_TOTAL_SIZE_MB) {
-      setSizeWarning(`⚠️ TOTAL SIZE ${totalSizeMB.toFixed(1)}MB • RECOMMEND UNDER ${MAX_TOTAL_SIZE_MB}MB`)
+      setSizeWarning(
+        `⚠️ TOTAL SIZE ${totalSizeMB.toFixed(
+          1
+        )}MB • RECOMMEND UNDER ${MAX_TOTAL_SIZE_MB}MB`
+      );
     } else {
-      setSizeWarning("")
+      setSizeWarning("");
     }
-  }
+  };
 
   const validateFiles = (newFiles: FileWithPreview[]) => {
-    const totalFiles = files.length + newFiles.length
+    const totalFiles = files.length + newFiles.length;
 
     // Check minimum files
     if (totalFiles < MIN_FILES) {
-      setValidationMessage(`NEED ${MIN_FILES - totalFiles} MORE IMAGES • MINIMUM ${MIN_FILES} REQUIRED`)
-      return true
+      setValidationMessage(
+        `NEED ${
+          MIN_FILES - totalFiles
+        } MORE IMAGES • MINIMUM ${MIN_FILES} REQUIRED`
+      );
+      return true;
     }
 
     if (totalFiles > MAX_FILES) {
-      setValidationMessage(`TOO MANY FILES! • MAXIMUM ${MAX_FILES} ALLOWED • WOULD BE: ${totalFiles}`)
-      play("error")
-      return false
+      setValidationMessage(
+        `TOO MANY FILES! • MAXIMUM ${MAX_FILES} ALLOWED • WOULD BE: ${totalFiles}`
+      );
+      play("error");
+      return false;
     }
 
     // Perfect amount
     if (totalFiles >= MIN_FILES) {
-      setValidationMessage("")
-      return true
+      setValidationMessage("");
+      return true;
     }
 
-    return true
-  }
+    return true;
+  };
 
   const processFiles = async (fileList: FileList) => {
-    const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+    const validImageTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+    ];
 
     // Check if adding these files would exceed the limit
     if (files.length + fileList.length > MAX_FILES) {
-      const slotsAvailable = MAX_FILES - files.length
-      setValidationMessage(`ONLY ${slotsAvailable} SLOT${slotsAvailable !== 1 ? 'S' : ''} REMAINING • MAXIMUM ${MAX_FILES} IMAGES ALLOWED`)
-      play("error")
+      const slotsAvailable = MAX_FILES - files.length;
+      setValidationMessage(
+        `ONLY ${slotsAvailable} SLOT${
+          slotsAvailable !== 1 ? "S" : ""
+        } REMAINING • MAXIMUM ${MAX_FILES} IMAGES ALLOWED`
+      );
+      play("error");
       toast({
-        title: 'Too Many Files',
-        description: `You can only upload ${slotsAvailable} more image${slotsAvailable !== 1 ? 's' : ''}. Maximum is ${MAX_FILES} images total.`,
-        variant: 'destructive',
-      })
-      return
+        title: "Too Many Files",
+        description: `You can only upload ${slotsAvailable} more image${
+          slotsAvailable !== 1 ? "s" : ""
+        }. Maximum is ${MAX_FILES} images total.`,
+        variant: "destructive",
+      });
+      return;
     }
 
     const newFiles: FileWithPreview[] = Array.from(fileList)
       .filter((file) => validImageTypes.includes(file.type))
       .slice(0, MAX_FILES - files.length) // Only take what we can fit
       .map((file) => {
-        const fileSizeMB = file.size / (1024 * 1024)
-        const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB
-        
-        // ✅ mutate original File object so it stays an actual File
+        const fileSizeMB = file.size / (1024 * 1024);
+        const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB;
+
+        // Start with uploading status and 0 progress
         return Object.assign(file, {
           id: nanoid(),
           preview: URL.createObjectURL(file),
           progress: 0,
-          status: 'uploading' as const,
-          sizeWarning
-        }) as FileWithPreview
-      })
+          status: "uploading" as const,
+          sizeWarning,
+        }) as FileWithPreview;
+      });
 
     if (newFiles.length === 0) {
-      play("error")
-      return
+      play("error");
+      return;
     }
 
-    // Add the files
-    const updatedFiles = [...files, ...newFiles]
-    setFiles(updatedFiles)
-    setScore((prev) => prev + newFiles.length * 100)
-    play("drop")
+    // Add the files with uploading status
+    const updatedFiles = [...files, ...newFiles];
+    setFiles(updatedFiles);
+    setScore((prev) => prev + newFiles.length * 100);
+    play("drop");
 
     // Update validation messages
-    validateFiles(newFiles)
-    checkFileSizes(updatedFiles)
+    validateFiles(newFiles);
+    checkFileSizes(updatedFiles);
 
-    // Actually upload the files
-    uploadFilesToStorage(newFiles)
-  }
+    // Start uploading files individually
+    uploadFilesToStorage(newFiles);
+  };
 
   const uploadFilesToStorage = async (filesToUpload: FileWithPreview[]) => {
-    try {
-      // Upload files to storage using the API
-      const actualFiles = filesToUpload.map(f => f as File)
-      const uploadedUrls = await uploadImages(actualFiles)
-      
-      // Update files with uploaded URLs and mark as completed
-      setFiles(prev => {
-        const updated = prev.map(file => {
-          const index = filesToUpload.findIndex(f => f.id === file.id)
-          if (index !== -1) {
-            return {
-              ...file,
-              status: "completed" as const,
-              progress: 100,
-              uploadedUrl: uploadedUrls[index]
-            }
-          }
-          return file
-        })
-        
-        // Update completed files count
-        const completedCount = updated.filter(f => f.status === "completed").length
-        setCompletedFiles(completedCount)
-        
-        // Recheck sizes after upload complete
-        checkFileSizes(updated)
-        return updated
-      })
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i];
 
-      // Play completion sounds
-      filesToUpload.forEach(() => {
-        setScore((prevScore) => prevScore + 50)
-        play("complete")
-      })
+      try {
+        // Update progress to show starting
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === file.id
+              ? { ...f, progress: 10, status: "uploading" as const }
+              : f
+          )
+        );
 
-    } catch (error) {
-      console.error('Upload error:', error)
-      
-      // Mark files as failed
-      setFiles(prev => {
-        const updated = prev.map(file => {
-          if (filesToUpload.some(f => f.id === file.id)) {
-            return { ...file, status: "error" as const }
-          }
-          return file
-        })
-        
-        // Update completed files count
-        const completedCount = updated.filter(f => f.status === "completed").length
-        setCompletedFiles(completedCount)
-        
-        return updated
-      })
-      
-      toast({
-        title: 'Upload Failed',
-        description: 'Some files failed to upload. Please try again.',
-        variant: 'destructive',
-      })
-      play("error")
+        const actualFile = file as File;
+        const urls = await uploadImages([actualFile]);
+
+        // Update file as completed
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === file.id
+              ? {
+                  ...f,
+                  status: "completed" as const,
+                  progress: 100,
+                  uploadedUrl: urls[0],
+                }
+              : f
+          )
+        );
+
+        // Play completion sound for each file
+        setScore((prevScore) => prevScore + 50);
+        play("complete");
+      } catch (error) {
+        console.error(`Upload error for file ${file.name}:`, error);
+
+        // Mark this specific file as failed
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === file.id
+              ? { ...f, status: "error" as const, progress: 0 }
+              : f
+          )
+        );
+
+        toast({
+          title: "Upload Failed",
+          description: `Failed to upload ${file.name}. You can try again.`,
+          variant: "destructive",
+        });
+        play("error");
+      }
     }
-  }
+
+    // Update completed files count after all uploads
+    setFiles((prev) => {
+      const completedCount = prev.filter(
+        (f) => f.status === "completed"
+      ).length;
+      setCompletedFiles(completedCount);
+      checkFileSizes(prev); // Recalculate sizes
+      return prev;
+    });
+  };
 
   const handleDragOver = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault()
+      e.preventDefault();
       if (!isDragOver) {
-        play("hover")
-        setIsDragOver(true)
+        play("hover");
+        setIsDragOver(true);
       }
     },
-    [isDragOver, play],
-  )
+    [isDragOver, play]
+  );
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }, [])
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragOver(false)
+      e.preventDefault();
+      setIsDragOver(false);
 
-      const droppedFiles = e.dataTransfer.files
+      const droppedFiles = e.dataTransfer.files;
       if (droppedFiles.length > 0) {
-        processFiles(droppedFiles)
+        processFiles(droppedFiles);
       }
     },
-    [files],
-  )
+    [files]
+  );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files
+    const selectedFiles = e.target.files;
     if (selectedFiles && selectedFiles.length > 0) {
-      processFiles(selectedFiles)
+      processFiles(selectedFiles);
     }
-  }
+  };
 
   const removeFile = (fileId: string) => {
-    play("delete")
-    
+    play("delete");
+
     setFiles((prev) => {
-      const updatedFiles = prev.filter((file) => file.id !== fileId)
-      setScore((prevScore) => Math.max(0, prevScore - 150))
+      const updatedFiles = prev.filter((file) => file.id !== fileId);
+      setScore((prevScore) => Math.max(0, prevScore - 150));
 
       // Update validation messages
       if (updatedFiles.length < MIN_FILES) {
-        setValidationMessage(`NEED ${MIN_FILES - updatedFiles.length} MORE IMAGES • MINIMUM ${MIN_FILES} REQUIRED`)
+        setValidationMessage(
+          `NEED ${
+            MIN_FILES - updatedFiles.length
+          } MORE IMAGES • MINIMUM ${MIN_FILES} REQUIRED`
+        );
       } else {
-        setValidationMessage("")
+        setValidationMessage("");
       }
 
       // Recheck sizes
-      checkFileSizes(updatedFiles)
+      checkFileSizes(updatedFiles);
 
-      return updatedFiles
-    })
-  }
+      return updatedFiles;
+    });
+  };
 
   const replaceFile = (fileId: string, newFile: File) => {
-    play("upload")
-    
+    play("upload");
+
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === fileId) {
           // Clean up old preview URL
-          URL.revokeObjectURL(file.preview)
+          URL.revokeObjectURL(file.preview);
 
-          const fileSizeMB = newFile.size / (1024 * 1024)
-          const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB
+          const fileSizeMB = newFile.size / (1024 * 1024);
+          const sizeWarning = fileSizeMB > MAX_FILE_SIZE_MB;
 
           const newFileWithPreview = Object.assign(newFile, {
             id: nanoid(),
             preview: URL.createObjectURL(newFile),
             progress: 0,
-            status: 'uploading' as const,
-            sizeWarning
-          }) as FileWithPreview
+            status: "uploading" as const,
+            sizeWarning,
+          }) as FileWithPreview;
 
           // Upload the new file
-          uploadFilesToStorage([newFileWithPreview])
-          
-          return newFileWithPreview
+          uploadFilesToStorage([newFileWithPreview]);
+
+          return newFileWithPreview;
         }
-        return file
-      }),
-    )
-  }
+        return file;
+      })
+    );
+  };
 
   const openImageModal = (file: FileWithPreview) => {
-    play("click")
-    setSelectedFile(file)
-    setIsModalOpen(true)
-  }
+    play("click");
+    setSelectedFile(file);
+    setIsModalOpen(true);
+  };
 
   const closeImageModal = () => {
-    play("click")
-    setIsModalOpen(false)
-    setSelectedFile(null)
-  }
+    play("click");
+    setIsModalOpen(false);
+    setSelectedFile(null);
+  };
 
   const openFileDialog = () => {
     if (files.length >= MAX_FILES) {
-      play("error")
+      play("error");
       toast({
-        title: 'Upload Full',
+        title: "Upload Full",
         description: `You already have ${MAX_FILES} images. Remove some first.`,
-        variant: 'destructive',
-      })
-      return
+        variant: "destructive",
+      });
+      return;
     }
-    
-    play("click")
-    fileInputRef.current?.click()
-  }
+
+    play("click");
+    fileInputRef.current?.click();
+  };
 
   const handleStartTraining = () => {
     if (files.length < MIN_FILES) {
-      play("error")
+      play("error");
       toast({
-        title: 'Incomplete Upload',
+        title: "Incomplete Upload",
         description: `Please upload at least ${MIN_FILES} images (${files.length}/${MIN_FILES})`,
-        variant: 'destructive',
-      })
-      return
+        variant: "destructive",
+      });
+      return;
     }
-    
-    play("click")
-    setShowTrainingForm(true)
-  }
+
+    play("click");
+    setShowTrainingForm(true);
+  };
 
   const startTraining = async () => {
     if (!subjectName.trim()) {
-      play("error")
+      play("error");
       toast({
-        title: 'Missing Subject Name',
-        description: 'Please enter a name for your training subject.',
-        variant: 'destructive',
-      })
-      return
+        title: "Missing Subject Name",
+        description: "Please enter a name for your training subject.",
+        variant: "destructive",
+      });
+      return;
     }
-  
+
     if (!user) {
       toast({
-        title: 'Authentication Required',
-        description: 'Please log in to start training.',
-        variant: 'destructive',
-      })
-      return
+        title: "Authentication Required",
+        description: "Please log in to start training.",
+        variant: "destructive",
+      });
+      return;
     }
 
     if (files.length < MIN_FILES) {
       toast({
-        title: 'Incomplete Upload',
+        title: "Incomplete Upload",
         description: `Please upload at least ${MIN_FILES} images (${files.length}/${MIN_FILES})`,
-        variant: 'destructive',
-      })
-      return
+        variant: "destructive",
+      });
+      return;
     }
-  
-    setIsStartingTraining(true)
-    play("levelUp")
-  
+
+    setIsStartingTraining(true);
+    play("levelUp");
+
     try {
       // Get the uploaded URLs from completed files
       const imageUrls = files
         .filter((f) => f.status === "completed" && f.uploadedUrl)
-        .map((f) => f.uploadedUrl!)
-  
+        .map((f) => f.uploadedUrl!);
+
       if (imageUrls.length < MIN_FILES) {
-        throw new Error(`Need at least ${MIN_FILES} completed uploads`)
+        throw new Error(`Need at least ${MIN_FILES} completed uploads`);
       }
-  
-      console.log('🚀 Starting training with:', {
+
+      console.log("🚀 Starting training with:", {
         subjectName,
         subjectType,
         imageCount: imageUrls.length,
-        userId: user.id
-      })
-  
+        userId: user.id,
+      });
+
       // Call the training API
-      const response = await fetch('/api/train', {
-        method: 'POST',
+      const response = await fetch("/api/train", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           imageUrls,
@@ -438,54 +505,63 @@ export default function ImageTrainingUploader() {
           subjectType,
           userId: user.id,
         }),
-      })
-  
-      const data = await response.json()
-  
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to start training')
-      }
-  
-      console.log('✅ Training started:', data)
-  
-      toast({
-        title: 'Training Started! 🚀',
-        description: `Training "${subjectName}" with ${imageUrls.length} images`,
-      })
-  
-      // Redirect to the training page
-      router.push(`/dashboard/${data.trainingId}`)
-  
-    } catch (error) {
-      console.error('💥 Training start error:', error)
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      
-      toast({
-        title: 'Training Failed',
-        description: errorMessage,
-        variant: 'destructive',
-      })
-      
-      play("error")
-    } finally {
-      setIsStartingTraining(false)
-    }
-  }
+      });
 
-  const level = Math.floor(completedFiles / 2) + 1
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to start training");
+      }
+
+      console.log("✅ Training started:", data);
+
+      toast({
+        title: "Training Started! 🚀",
+        description: `Training "${subjectName}" with ${imageUrls.length} images`,
+      });
+
+      // Redirect to the training page
+      router.push(`/dashboard/${data.trainingId}`);
+    } catch (error) {
+      console.error("💥 Training start error:", error);
+
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+
+      toast({
+        title: "Training Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+
+      play("error");
+    } finally {
+      setIsStartingTraining(false);
+    }
+  };
+
+  const level = Math.floor(completedFiles / 2) + 1;
 
   // Check for level up
   useEffect(() => {
     if (level > previousLevel) {
-      play("levelUp")
-      setPreviousLevel(level)
+      play("levelUp");
+      setPreviousLevel(level);
     }
-  }, [level, previousLevel, play])
+  }, [level, previousLevel, play]);
 
-  // Calculate total size for display
-  const totalSizeBytes = files.reduce((sum, file) => sum + file.size, 0)
-  const totalSizeMB = totalSizeBytes / (1024 * 1024)
+  // Calculate total size for display - only include actual files, not broken ones
+  const totalSizeBytes = files.reduce((sum, file) => {
+    // Only count files that have valid size
+    return sum + (file.size || 0);
+  }, 0);
+  const totalSizeMB = totalSizeBytes / (1024 * 1024);
+
+  // Calculate upload progress
+  const uploadingFilesCount = files.filter(
+    (f) => f.status === "uploading"
+  ).length;
+  const failedFilesCount = files.filter((f) => f.status === "error").length;
 
   // Show training form if requested
   if (showTrainingForm) {
@@ -528,13 +604,13 @@ export default function ImageTrainingUploader() {
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {SUBJECT_TYPES.map((type) => {
-                    const Icon = type.icon
+                    const Icon = type.icon;
                     return (
                       <button
                         key={type.id}
                         onClick={() => {
-                          setSubjectType(type.id)
-                          play("click")
+                          setSubjectType(type.id);
+                          play("click");
                         }}
                         className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
                           subjectType === type.id
@@ -552,7 +628,7 @@ export default function ImageTrainingUploader() {
                           {type.description}
                         </p>
                       </button>
-                    )
+                    );
                   })}
                 </div>
               </div>
@@ -564,16 +640,28 @@ export default function ImageTrainingUploader() {
                 </h3>
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <div className="text-green-400 font-mono text-xl font-bold">{completedFiles}</div>
-                    <div className="text-gray-400 font-mono text-xs uppercase">Ready</div>
+                    <div className="text-green-400 font-mono text-xl font-bold">
+                      {completedFiles}
+                    </div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">
+                      Ready
+                    </div>
                   </div>
                   <div>
-                    <div className="text-cyan-400 font-mono text-xl font-bold">{totalSizeMB.toFixed(1)}MB</div>
-                    <div className="text-gray-400 font-mono text-xs uppercase">Total Size</div>
+                    <div className="text-cyan-400 font-mono text-xl font-bold">
+                      {isNaN(totalSizeMB) ? "0.0" : totalSizeMB.toFixed(1)}MB
+                    </div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">
+                      Total Size
+                    </div>
                   </div>
                   <div>
-                    <div className="text-red-400 font-mono text-xl font-bold">{files.length - completedFiles}</div>
-                    <div className="text-gray-400 font-mono text-xs uppercase">Failed</div>
+                    <div className="text-red-400 font-mono text-xl font-bold">
+                      {failedFilesCount}
+                    </div>
+                    <div className="text-gray-400 font-mono text-xs uppercase">
+                      Failed
+                    </div>
                   </div>
                 </div>
               </div>
@@ -585,9 +673,12 @@ export default function ImageTrainingUploader() {
                     <FileWarning className="w-4 h-4" />
                     SIZE WARNING
                   </div>
-                  <div className="text-yellow-300 font-mono text-xs">{sizeWarning}</div>
+                  <div className="text-yellow-300 font-mono text-xs">
+                    {sizeWarning}
+                  </div>
                   <div className="text-yellow-200 font-mono text-xs mt-1">
-                    Large files may cause training to timeout. Consider resizing images.
+                    Large files may cause training to timeout. Consider resizing
+                    images.
                   </div>
                 </div>
               )}
@@ -596,8 +687,8 @@ export default function ImageTrainingUploader() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button
                   onClick={() => {
-                    play("click")
-                    setShowTrainingForm(false)
+                    play("click");
+                    setShowTrainingForm(false);
                   }}
                   variant="outline"
                   className="bg-gray-800 border-2 border-gray-600 text-gray-300 hover:bg-gray-700 font-mono uppercase tracking-wide"
@@ -623,7 +714,7 @@ export default function ImageTrainingUploader() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -661,27 +752,53 @@ export default function ImageTrainingUploader() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {/* Score */}
           <div className="bg-black border-2 border-yellow-400 p-2 sm:p-3 rounded font-mono">
-            <div className="text-yellow-400 text-xs uppercase tracking-wide">Score</div>
-            <div className="text-yellow-300 text-lg sm:text-xl font-bold">{score.toLocaleString()}</div>
+            <div className="text-yellow-400 text-xs uppercase tracking-wide">
+              Score
+            </div>
+            <div className="text-yellow-300 text-lg sm:text-xl font-bold">
+              {score.toLocaleString()}
+            </div>
           </div>
 
           {/* Level */}
           <div className="bg-black border-2 border-green-400 p-2 sm:p-3 rounded font-mono">
-            <div className="text-green-400 text-xs uppercase tracking-wide">Level</div>
-            <div className="text-green-300 text-lg sm:text-xl font-bold">{level}</div>
+            <div className="text-green-400 text-xs uppercase tracking-wide">
+              Level
+            </div>
+            <div className="text-green-300 text-lg sm:text-xl font-bold">
+              {level}
+            </div>
           </div>
 
           {/* Files */}
           <div className="bg-black border-2 border-pink-400 p-2 sm:p-3 rounded font-mono">
-            <div className="text-pink-400 text-xs uppercase tracking-wide">Files</div>
-            <div className="text-pink-300 text-lg sm:text-xl font-bold">{files.length}/{MIN_FILES}</div>
+            <div className="text-pink-400 text-xs uppercase tracking-wide">
+              Files
+            </div>
+            <div className="text-pink-300 text-lg sm:text-xl font-bold">
+              {files.length}/{MIN_FILES}
+            </div>
           </div>
 
           {/* Size */}
           <div className="bg-black border-2 border-cyan-400 p-2 sm:p-3 rounded font-mono">
-            <div className={`text-lg sm:text-xl font-bold ${totalSizeMB > MAX_TOTAL_SIZE_MB ? 'text-red-300' : 'text-cyan-300'}`}>
-              {totalSizeMB.toFixed(1)}MB
+            <div className="text-cyan-400 text-xs uppercase tracking-wide">
+              Size
             </div>
+            <div
+              className={`text-lg sm:text-xl font-bold ${
+                totalSizeMB > MAX_TOTAL_SIZE_MB
+                  ? "text-red-300"
+                  : "text-cyan-300"
+              }`}
+            >
+              {isNaN(totalSizeMB) ? "0.0" : totalSizeMB.toFixed(1)}MB
+            </div>
+            {uploadingFilesCount > 0 && (
+              <div className="text-cyan-200 text-xs">
+                {uploadingFilesCount} uploading...
+              </div>
+            )}
           </div>
         </div>
 
@@ -690,11 +807,14 @@ export default function ImageTrainingUploader() {
           <div className="mb-6 bg-yellow-900 border-2 border-yellow-400 p-3 sm:p-4 rounded font-mono">
             <div className="flex items-center gap-2 mb-2">
               <FileWarning className="h-5 w-5 text-yellow-400 animate-pulse flex-shrink-0" />
-              <span className="text-yellow-300 text-xs sm:text-sm font-bold uppercase tracking-wide">SIZE WARNING</span>
+              <span className="text-yellow-300 text-xs sm:text-sm font-bold uppercase tracking-wide">
+                SIZE WARNING
+              </span>
             </div>
             <div className="text-yellow-200 text-xs">{sizeWarning}</div>
             <div className="text-yellow-100 text-xs mt-1">
-              💡 TIP: Resize images to under {MAX_FILE_SIZE_MB}MB each to prevent training timeouts
+              💡 TIP: Resize images to under {MAX_FILE_SIZE_MB}MB each to
+              prevent training timeouts
             </div>
           </div>
         )}
@@ -704,7 +824,9 @@ export default function ImageTrainingUploader() {
           <div className="mb-6 bg-red-900 border-2 border-red-400 p-3 sm:p-4 rounded font-mono">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-400 animate-pulse flex-shrink-0" />
-              <span className="text-red-300 text-xs sm:text-sm uppercase tracking-wide">{validationMessage}</span>
+              <span className="text-red-300 text-xs sm:text-sm uppercase tracking-wide">
+                {validationMessage}
+              </span>
             </div>
           </div>
         )}
@@ -716,9 +838,10 @@ export default function ImageTrainingUploader() {
           onDrop={handleDrop}
           className={`
             relative border-4 border-dashed rounded-lg p-6 sm:p-8 text-center transition-all duration-300 cursor-pointer font-mono mb-6
-            ${files.length >= MAX_FILES 
-              ? "border-gray-500 bg-gray-800/50 cursor-not-allowed opacity-50"
-              : isDragOver
+            ${
+              files.length >= MAX_FILES
+                ? "border-gray-500 bg-gray-800/50 cursor-not-allowed opacity-50"
+                : isDragOver
                 ? "border-pink-400 bg-pink-900/20 shadow-lg shadow-pink-500/25 animate-pulse"
                 : "border-gray-600 hover:border-purple-400 hover:bg-purple-900/10 hover:shadow-lg hover:shadow-purple-500/25"
             }
@@ -741,11 +864,11 @@ export default function ImageTrainingUploader() {
               <div className="relative">
                 <div
                   className={`w-16 h-16 sm:w-20 sm:h-20 border-4 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                    files.length >= MAX_FILES 
+                    files.length >= MAX_FILES
                       ? "border-gray-500 bg-gray-700"
-                      : isUploading 
-                        ? "border-pink-400 bg-pink-500/20 animate-bounce" 
-                        : "border-gray-500 bg-gray-800"
+                      : isUploading
+                      ? "border-pink-400 bg-pink-500/20 animate-bounce"
+                      : "border-gray-500 bg-gray-800"
                   }`}
                 >
                   {files.length >= MAX_FILES ? (
@@ -753,7 +876,11 @@ export default function ImageTrainingUploader() {
                   ) : isUploading ? (
                     <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-400 animate-spin" />
                   ) : (
-                    <Upload className={`w-8 h-8 sm:w-10 sm:h-10 ${isDragOver ? "text-pink-400" : "text-gray-400"}`} />
+                    <Upload
+                      className={`w-8 h-8 sm:w-10 sm:h-10 ${
+                        isDragOver ? "text-pink-400" : "text-gray-400"
+                      }`}
+                    />
                   )}
                 </div>
                 {/* Pixel corners */}
@@ -773,21 +900,25 @@ export default function ImageTrainingUploader() {
                 {files.length >= MAX_FILES
                   ? ">>> UPLOAD COMPLETE <<<"
                   : isDragOver
-                    ? ">>> DROP FILES HERE <<<"
-                    : files.length === 0
-                      ? "UPLOAD 10-15 IMAGES"
-                      : files.length < MIN_FILES
-                        ? `ADD ${MIN_FILES - files.length} MORE IMAGES`
-                        : `ADD ${MAX_FILES - files.length} MORE IMAGES`}
+                  ? ">>> DROP FILES HERE <<<"
+                  : files.length === 0
+                  ? "UPLOAD 10-15 IMAGES"
+                  : files.length < MIN_FILES
+                  ? `ADD ${MIN_FILES - files.length} MORE IMAGES`
+                  : `ADD ${MAX_FILES - files.length} MORE IMAGES`}
               </h3>
               <p className="text-gray-400 uppercase text-xs sm:text-sm tracking-wide">
-                {files.length >= MAX_FILES 
+                {files.length >= MAX_FILES
                   ? "READY FOR TRAINING"
-                  : "DRAG & DROP OR " + (files.length === 0 ? "" : "") + "PRESS TO BROWSE"}
+                  : "DRAG & DROP OR " +
+                    (files.length === 0 ? "" : "") +
+                    "PRESS TO BROWSE"}
               </p>
               <div className="text-xs text-gray-500 space-y-1">
                 <div>SUPPORTED: JPG • PNG • GIF • WEBP</div>
-                <div>MINIMUM {MIN_FILES} • MAXIMUM {MAX_FILES} IMAGES</div>
+                <div>
+                  MINIMUM {MIN_FILES} • MAXIMUM {MAX_FILES} IMAGES
+                </div>
                 <div>RECOMMENDED: UNDER {MAX_FILE_SIZE_MB}MB PER IMAGE</div>
                 <div>TOTAL SIZE: UNDER {MAX_TOTAL_SIZE_MB}MB RECOMMENDED</div>
               </div>
@@ -825,11 +956,11 @@ export default function ImageTrainingUploader() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  play("click")
-                  setFiles([])
-                  setScore(0)
-                  setValidationMessage("")
-                  setSizeWarning("")
+                  play("click");
+                  setFiles([]);
+                  setScore(0);
+                  setValidationMessage("");
+                  setSizeWarning("");
                 }}
                 className="bg-red-900 border-red-400 text-red-300 hover:bg-red-800 font-mono text-xs uppercase tracking-wide"
               >
@@ -894,8 +1025,8 @@ export default function ImageTrainingUploader() {
                     {/* Delete Button */}
                     <button
                       onClick={(e) => {
-                        e.stopPropagation()
-                        removeFile(file.id)
+                        e.stopPropagation();
+                        removeFile(file.id);
                       }}
                       className="absolute top-1 right-1 w-4 h-4 sm:w-5 sm:h-5 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 border-2 border-red-400 hover:border-red-300 shadow-lg"
                       title="Delete image"
@@ -922,16 +1053,18 @@ export default function ImageTrainingUploader() {
               ))}
 
               {/* Empty Slots */}
-              {Array.from({ length: MAX_FILES - files.length }).map((_, index) => (
-                <div
-                  key={`empty-${index}`}
-                  className="aspect-square bg-gray-800/30 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center"
-                >
-                  <div className="text-gray-500 font-mono text-xs">
-                    {files.length + index + 1}
+              {Array.from({ length: MAX_FILES - files.length }).map(
+                (_, index) => (
+                  <div
+                    key={`empty-${index}`}
+                    className="aspect-square bg-gray-800/30 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center"
+                  >
+                    <div className="text-gray-500 font-mono text-xs">
+                      {files.length + index + 1}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           </div>
         )}
@@ -953,11 +1086,17 @@ export default function ImageTrainingUploader() {
         {files.length < MIN_FILES && (
           <div className="mt-8 text-center">
             <div className="bg-gray-800 border-2 border-gray-600 p-4 rounded-lg font-mono">
-              <div className="text-gray-400 text-sm uppercase tracking-wide mb-2">MISSION PROGRESS</div>
+              <div className="text-gray-400 text-sm uppercase tracking-wide mb-2">
+                MISSION PROGRESS
+              </div>
               <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="text-yellow-400 text-2xl font-bold">{files.length}</div>
+                <div className="text-yellow-400 text-2xl font-bold">
+                  {files.length}
+                </div>
                 <div className="text-gray-500">/</div>
-                <div className="text-green-400 text-2xl font-bold">{MIN_FILES}</div>
+                <div className="text-green-400 text-2xl font-bold">
+                  {MIN_FILES}
+                </div>
               </div>
               <div className="w-full bg-gray-700 h-3 rounded-full overflow-hidden mb-2">
                 <div
@@ -966,7 +1105,9 @@ export default function ImageTrainingUploader() {
                 />
               </div>
               <div className="text-xs text-gray-500 uppercase">
-                {files.length === 0 ? "START YOUR MISSION" : `${MIN_FILES - files.length} MORE TO UNLOCK TRAINING`}
+                {files.length === 0
+                  ? "START YOUR MISSION"
+                  : `${MIN_FILES - files.length} MORE TO UNLOCK TRAINING`}
               </div>
             </div>
           </div>
@@ -976,23 +1117,32 @@ export default function ImageTrainingUploader() {
         {files.length >= MIN_FILES && completedFiles < MIN_FILES && (
           <div className="mt-8 text-center">
             <div className="bg-yellow-900 border-2 border-yellow-400 p-4 rounded-lg font-mono">
-              <div className="text-yellow-400 text-sm uppercase tracking-wide mb-2">UPLOADING IN PROGRESS</div>
+              <div className="text-yellow-400 text-sm uppercase tracking-wide mb-2">
+                UPLOADING IN PROGRESS
+              </div>
               <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="text-yellow-400 text-2xl font-bold">{completedFiles}</div>
+                <div className="text-yellow-400 text-2xl font-bold">
+                  {completedFiles}
+                </div>
                 <div className="text-gray-500">/</div>
-                <div className="text-green-400 text-2xl font-bold">{MIN_FILES}</div>
+                <div className="text-green-400 text-2xl font-bold">
+                  {MIN_FILES}
+                </div>
                 <div className="text-gray-500 text-sm">COMPLETED</div>
               </div>
-              <div className="text-xs text-yellow-300 uppercase animate-pulse">WAIT FOR ALL UPLOADS TO COMPLETE</div>
+              <div className="text-xs text-yellow-300 uppercase animate-pulse">
+                WAIT FOR ALL UPLOADS TO COMPLETE
+              </div>
             </div>
           </div>
         )}
 
-        {/* Error files warning */}
-        {files.length - completedFiles > 0 && (
+        {/* Error files warning - only show for actually failed files */}
+        {failedFilesCount > 0 && (
           <div className="mt-4 bg-red-900/40 border-2 border-red-400/50 rounded-lg p-4">
             <div className="text-red-400 font-mono text-sm text-center">
-              ⚠️ {files.length - completedFiles} FILE{files.length - completedFiles > 1 ? 'S' : ''} FAILED TO UPLOAD
+              ⚠️ {failedFilesCount} FILE
+              {failedFilesCount > 1 ? "S" : ""} FAILED TO UPLOAD
             </div>
             <div className="text-red-300 font-mono text-xs text-center mt-1">
               Please remove failed files and try uploading them again
@@ -1013,5 +1163,5 @@ export default function ImageTrainingUploader() {
         />
       )}
     </div>
-  )
+  );
 }
