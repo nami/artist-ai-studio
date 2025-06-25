@@ -57,7 +57,6 @@ export default function EditPage() {
         // Optional: Check if there's image data available
         const hasImageData = sessionStorage?.getItem("editImageData");
         if (!hasImageData) {
-          console.log("No image data found - editor will use placeholder");
         }
 
         setIsLoading(false);

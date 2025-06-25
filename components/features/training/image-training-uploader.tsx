@@ -479,13 +479,6 @@ export default function ImageTrainingUploader() {
         throw new Error(`Need at least ${MIN_FILES} completed uploads`);
       }
 
-      console.log("🚀 Starting training with:", {
-        subjectName,
-        subjectType,
-        imageCount: imageUrls.length,
-        userId: user.id,
-      });
-
       // Call the training API
       const response = await fetch("/api/train", {
         method: "POST",
@@ -505,8 +498,6 @@ export default function ImageTrainingUploader() {
       if (!response.ok) {
         throw new Error(data.error || "Failed to start training");
       }
-
-      console.log("✅ Training started:", data);
 
       toast({
         title: "Training Started! 🚀",

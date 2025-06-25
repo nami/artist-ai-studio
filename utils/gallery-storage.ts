@@ -157,7 +157,6 @@ export function useSaveToGallery() {
     try {
       const result = await saveToGallery(params);
       if (result.success) {
-        console.log("✅ Image saved to gallery:", result.galleryItem?.id);
         return { success: true, galleryItem: result.galleryItem };
       } else {
         console.error("❌ Failed to save image to gallery:", result.error);

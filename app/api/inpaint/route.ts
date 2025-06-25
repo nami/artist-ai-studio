@@ -24,11 +24,6 @@ export async function POST(request: NextRequest) {
     const prompt = formData.get("prompt") as string;
     const preservePose = formData.get("preservePose") === "true";
 
-    console.log("🎨 Starting inpaint process...");
-    console.log("📸 Image URL:", imageUrl);
-    console.log("✏️ Raw prompt:", prompt);
-    console.log("🎯 Preserve pose:", preservePose);
-
     // 🔥 FIXED: Better prompt cleaning that removes problematic prefixes
     let cleanPrompt = prompt.trim();
 
@@ -48,8 +43,6 @@ export async function POST(request: NextRequest) {
       .replace(/^[,\s]*/, "") // Remove any remaining leading punctuation
       .trim();
 
-    console.log("✨ Cleaned prompt:", cleanPrompt);
-
     // Validate that we have a meaningful prompt after cleaning
     if (!cleanPrompt || cleanPrompt.length < 3) {
       throw new Error("Prompt is empty or too short after cleaning");
@@ -65,11 +58,9 @@ export async function POST(request: NextRequest) {
         access: "public",
       });
       maskUrl = maskBlob.url;
-      console.log("🎭 Mask uploaded:", maskUrl);
     } else {
       // In development, use placeholder
       maskUrl = "https://via.placeholder.com/512?text=mask";
-      console.log("🔧 Using placeholder mask for development");
     }
 
     let output;
@@ -77,13 +68,7 @@ export async function POST(request: NextRequest) {
 
     if (preservePose) {
       // 🔥 ENHANCED: More specific pose preservation instructions
-      console.log("🦴 Adding pose preservation to prompt...");
       enhancedPrompt = `${cleanPrompt}, keeping the exact same pose and body position, maintaining original posture and stance, preserving all body positioning and orientation`;
-
-      console.log(
-        "🎨 Starting FLUX Fill DEV inpainting with pose preservation..."
-      );
-      console.log("🎯 Final enhanced prompt:", enhancedPrompt);
 
       output = await replicate.run("black-forest-labs/flux-fill-dev", {
         input: {
@@ -98,8 +83,6 @@ export async function POST(request: NextRequest) {
       });
     } else {
       // 🔥 IMPROVED: Better standard inpainting parameters
-      console.log("🎨 Starting standard FLUX Fill DEV inpainting...");
-      console.log("🎯 Final prompt:", enhancedPrompt);
 
       output = await replicate.run("black-forest-labs/flux-fill-dev", {
         input: {
@@ -115,18 +98,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log("🔍 Raw output type:", typeof output);
-    console.log("🔍 Raw output:", output);
-
     // 🔥 FIXED: Better ReadableStream handling for FLUX models
     let editedUrl: string;
 
     if (typeof output === "string") {
       editedUrl = output;
-      console.log("📝 Direct string output:", editedUrl);
     } else if (Array.isArray(output)) {
-      console.log("📋 Array output detected, length:", output.length);
-
       if (output.length === 0) {
         throw new Error("Empty array response from FLUX Fill model");
       }
@@ -138,26 +115,17 @@ export async function POST(request: NextRequest) {
         output[0] !== null &&
         "locked" in output[0]
       ) {
-        console.log("🌊 ReadableStream detected in array");
         // For FLUX models, the ReadableStream usually contains the direct URL
         // Try to extract it properly
         try {
           // First attempt: check if it's actually a URL string disguised as ReadableStream
           const streamStr = String(output[0]);
-          console.log(
-            "🔍 Stream string representation:",
-            streamStr.substring(0, 100)
-          );
 
           if (streamStr.startsWith("http")) {
             editedUrl = streamStr;
-            console.log("✅ Extracted URL from stream string:", editedUrl);
           } else {
             // Second attempt: FLUX sometimes wraps the URL in the stream
             // This is a fallback approach - may need adjustment based on actual FLUX behavior
-            console.log(
-              "⚠️ Stream doesn't contain direct URL, using alternative extraction"
-            );
 
             // For FLUX Fill, sometimes we need to wait a moment and check again
             // or the URL is in a different property
@@ -175,10 +143,8 @@ export async function POST(request: NextRequest) {
       } else {
         // Regular array with string URL
         editedUrl = String(output[0]);
-        console.log("📝 Array string output:", editedUrl);
       }
     } else if (output && typeof output === "object") {
-      console.log("🔧 Object output detected");
       const outputObj = output as ReplicateResponse;
 
       if (outputObj.url && typeof outputObj.url === "string") {
@@ -188,7 +154,6 @@ export async function POST(request: NextRequest) {
       } else if (outputObj.output && typeof outputObj.output === "string") {
         editedUrl = outputObj.output;
       } else {
-        console.log("⚠️ Unexpected object format:", Object.keys(outputObj));
         editedUrl = String(output);
 
         if (!editedUrl.startsWith("http")) {
@@ -196,23 +161,13 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      console.log("❌ Completely unexpected output type");
       throw new Error("Unexpected output format from FLUX Fill model");
     }
-
-    console.log("✅ Edit completed:", editedUrl);
 
     // Validate the URL format
     if (!editedUrl || !editedUrl.startsWith("http")) {
       console.error("❌ Invalid URL:", editedUrl);
       throw new Error("Invalid image URL returned from model");
-    }
-
-    // 🔥 NEW: Verify the URL is actually different from input
-    if (editedUrl === imageUrl) {
-      console.log(
-        "⚠️ Output URL is same as input URL - possible no-change result"
-      );
     }
 
     return NextResponse.json({
@@ -226,8 +181,6 @@ export async function POST(request: NextRequest) {
 
     // 🔥 IMPROVED: Better fallback with same prompt cleaning
     try {
-      console.log("🔄 Trying fallback inpainting model...");
-
       // Create new request clone for fallback
       const cloneRequest = request.clone();
       const originalFormData = await cloneRequest.formData();
@@ -248,8 +201,6 @@ export async function POST(request: NextRequest) {
         .replace(/^style\s+image\s*:?\s*,?\s*/i, "")
         .replace(/^[,\s]*/, "")
         .trim();
-
-      console.log("🔄 Fallback cleaned prompt:", cleanPromptFallback);
 
       // Re-upload mask for fallback
       let maskUrlFallback = "";
@@ -282,9 +233,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      console.log("🔍 Fallback output type:", typeof fallbackOutput);
-      console.log("🔍 Fallback output:", fallbackOutput);
-
       let fallbackUrl: string;
       if (typeof fallbackOutput === "string") {
         fallbackUrl = fallbackOutput;
@@ -297,8 +245,6 @@ export async function POST(request: NextRequest) {
       } else {
         fallbackUrl = String(fallbackOutput);
       }
-
-      console.log("✅ Fallback edit completed:", fallbackUrl);
 
       if (!fallbackUrl || !fallbackUrl.startsWith("http")) {
         throw new Error("Invalid fallback image URL");
@@ -334,8 +280,6 @@ export async function GET(request: NextRequest) {
 
   if (action === "test") {
     try {
-      console.log("🧪 Testing FLUX Fill DEV model availability...");
-
       const response = await fetch(
         "https://api.replicate.com/v1/models/black-forest-labs/flux-fill-dev",
         {

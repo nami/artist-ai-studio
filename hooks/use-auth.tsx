@@ -35,7 +35,6 @@ export function useAuth() {
             error.message.includes("Invalid Refresh Token") ||
             error.message.includes("Refresh Token Not Found")
           ) {
-            console.log("Refresh token expired or invalid, clearing session");
             // Clear any stale session data
             await supabase.auth.signOut();
             setUser(null);
@@ -65,8 +64,6 @@ export function useAuth() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
-        console.log("Auth state change:", event, session?.user?.email);
-
         // Handle different auth events
         switch (event) {
           case "SIGNED_IN":

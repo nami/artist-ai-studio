@@ -20,34 +20,12 @@ const api = axios.create({
 });
 
 export const uploadImages = async (files: File[]) => {
-  console.log("🚀 Starting file upload...");
-  console.log(
-    "📁 Files to upload:",
-    files.map((f) => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      isFile: f instanceof File,
-      hasArrayBuffer: typeof f.arrayBuffer === "function",
-    }))
-  );
-
   const formData = new FormData();
 
   // Add each file individually with the same key name
-  files.forEach((file, index) => {
-    console.log(`📎 Adding file ${index + 1}: ${file.name}`);
+  files.forEach((file) => {
     formData.append("files", file);
   });
-
-  // Debug: Check what's in FormData
-  console.log("📋 FormData entries:");
-  for (let [key, value] of formData.entries()) {
-    console.log(
-      `  ${key}:`,
-      value instanceof File ? `File(${value.name})` : value
-    );
-  }
 
   try {
     const { data } = await api.post("/api/upload", formData, {
@@ -56,7 +34,6 @@ export const uploadImages = async (files: File[]) => {
       timeout: 60000, // 60 seconds
     });
 
-    console.log("✅ Upload successful:", data.urls);
     return data.urls as string[];
   } catch (error) {
     console.error("💥 Upload failed:", error);

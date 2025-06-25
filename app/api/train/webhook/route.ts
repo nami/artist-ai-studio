@@ -5,15 +5,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    console.log("🎣 Webhook received:", {
-      id: body.id,
-      status: body.status,
-      hasOutput: !!body.output,
-      hasError: !!body.error,
-      outputType: typeof body.output,
-      rawOutput: body.output, // Log the raw output to see format
-    });
-
     const trainingId = body.id;
     const status = body.status;
     const output = body.output;
@@ -41,10 +32,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    console.log(
-      `📊 Updating dataset ${dataset.id} (${dataset.subject_name}) with status: ${status}`
-    );
-
     // Prepare update data
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = {
@@ -53,29 +40,16 @@ export async function POST(request: NextRequest) {
 
     // Handle different training statuses
     if (status === "succeeded" || status === "completed") {
-      console.log("✅ Training completed successfully");
-
       if (output) {
-        console.log("📋 Training output received:", {
-          type: typeof output,
-          value: output,
-          stringified: JSON.stringify(output),
-        });
-
         // 🔧 IMPROVED: Handle different output formats from fast-flux-trainer
         let modelVersion = null;
 
         if (typeof output === "string") {
           // Direct string output (most common)
           modelVersion = output;
-          console.log("📝 Using string output as model version:", modelVersion);
         } else if (Array.isArray(output)) {
           // Array output - use first item
           modelVersion = output[0];
-          console.log(
-            "📝 Using first array item as model version:",
-            modelVersion
-          );
         } else if (typeof output === "object" && output !== null) {
           // Object output - try different possible fields
           if (output.model) {
@@ -102,7 +76,6 @@ export async function POST(request: NextRequest) {
               modelVersion = JSON.stringify(output);
             }
           }
-          console.log("📝 Extracted from object:", modelVersion);
         }
 
         if (modelVersion) {
@@ -110,8 +83,6 @@ export async function POST(request: NextRequest) {
           updateData.training_status = "completed";
           updateData.completed_at = new Date().toISOString();
           updateData.error_message = null; // Clear any previous errors
-
-          console.log(`💾 Saving model version: "${modelVersion}"`);
         } else {
           console.warn("⚠️ Could not extract model version from output");
           updateData.training_status = "failed";
@@ -126,20 +97,15 @@ export async function POST(request: NextRequest) {
           "Training completed but no model output received";
       }
     } else if (status === "failed" || status === "canceled") {
-      console.log(`❌ Training ${status}`);
-
       updateData.training_status = "failed";
       updateData.error_message = error || `Training ${status}`;
 
       if (logs) {
-        console.log("📜 Training logs:", logs);
         // Store logs as JSON string if it's an object
         updateData.logs =
           typeof logs === "object" ? JSON.stringify(logs) : logs;
       }
     } else if (status === "processing" || status === "starting") {
-      console.log(`⏳ Training in progress: ${status}`);
-
       updateData.training_status = "processing"; // Normalize to 'processing'
 
       if (logs) {
@@ -147,7 +113,6 @@ export async function POST(request: NextRequest) {
           typeof logs === "object" ? JSON.stringify(logs) : logs;
       }
     } else {
-      console.log(`📊 Unknown status: ${status}`);
       updateData.training_status = "processing"; // Default to processing for unknown statuses
     }
 
@@ -160,19 +125,6 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error("💥 Failed to update dataset:", updateError);
       throw updateError;
-    }
-
-    console.log(`✅ Successfully updated dataset ${dataset.id}:`, {
-      status: updateData.training_status,
-      modelVersion: updateData.model_version,
-      hasError: !!updateData.error_message,
-    });
-
-    // Log the final state for debugging
-    if (updateData.model_version) {
-      console.log(
-        `🎯 Model ready for generation: "${updateData.model_version}"`
-      );
     }
 
     return NextResponse.json({

@@ -32,7 +32,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
   const [lightboxImage, setLightboxImage] = useState<GalleryImage | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [debugInfo, setDebugInfo] = useState<string>("");
   const { user, loading: authLoading } = useAuth();
 
   // Add escape key handler
@@ -51,16 +50,13 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
     const loadImages = async () => {
       if (!user?.id || authLoading) {
         setIsLoading(false);
-        setDebugInfo("No user authenticated or still loading auth");
         return;
       }
 
       try {
-        console.log("🔍 Loading gallery images from database...");
         setIsLoading(true);
 
         const galleryImages = await getGalleryImages(user.id);
-        console.log("🖼️ Loaded gallery images:", galleryImages);
 
         // Sort by newest first
         galleryImages.sort(
@@ -68,19 +64,9 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
         );
         setImages(galleryImages);
 
-        // Set debug info
-        setDebugInfo(
-          `Found ${galleryImages.length} images in gallery database for user ${user.id}.`
-        );
-
         setIsLoading(false);
       } catch (error) {
         console.error("❌ Error loading gallery images:", error);
-        setDebugInfo(
-          `Error loading images: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
         setIsLoading(false);
       }
     };
@@ -90,7 +76,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
   // Function to refresh the gallery
   const refreshGallery = async () => {
     if (!user?.id) {
-      setDebugInfo("Cannot refresh: no user authenticated");
       return;
     }
 
@@ -103,15 +88,9 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
             b.timestamp.getTime() - a.timestamp.getTime()
         );
         setImages(galleryImages);
-        setDebugInfo(`Refreshed: Found ${galleryImages.length} images`);
         setIsLoading(false);
       } catch (error) {
         console.error("❌ Error refreshing gallery:", error);
-        setDebugInfo(
-          `Error refreshing: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
         setIsLoading(false);
       }
     }, 500);
@@ -258,36 +237,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
             </Button>
           </div>
         </div>
-
-        {/* Debug Info */}
-        {debugInfo && (
-          <div className="relative z-10 p-4 border-b-2 border-gray-700 bg-gray-800/50">
-            <div className="text-xs font-mono text-cyan-400 space-y-2">
-              <div>🐛 Debug: {debugInfo}</div>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => {
-                    console.log("Gallery debug info:", {
-                      userId: user?.id,
-                      imageCount: images.length,
-                      authLoading,
-                    });
-                    alert("Check console for gallery debug data");
-                  }}
-                  className="px-2 py-1 bg-yellow-800/50 border border-yellow-600 rounded text-yellow-300 hover:bg-yellow-700/50"
-                >
-                  Console Log
-                </button>
-                <button
-                  onClick={() => refreshGallery()}
-                  className="px-2 py-1 bg-blue-800/50 border border-blue-600 rounded text-blue-300 hover:bg-blue-700/50"
-                >
-                  Refresh Gallery
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Gallery Content */}
         <div className="relative z-10 p-4">

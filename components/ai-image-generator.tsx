@@ -251,18 +251,6 @@ export default function AIImageGenerator({
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [currentImage, setCurrentImage] = useState<GeneratedImage | null>(null);
 
-  // Debug logging for currentImage changes
-  useEffect(() => {
-    if (currentImage) {
-      console.log(
-        "✨ Current image updated:",
-        currentImage.id,
-        currentImage.prompt.substring(0, 20)
-      );
-    } else {
-      console.log("✨ Current image cleared");
-    }
-  }, [currentImage]);
   const [steps, setSteps] = useState<number[]>([20]);
   const [guidance, setGuidance] = useState<number[]>([7.5]);
   const [seed, setSeed] = useState<number[]>([]);
@@ -298,7 +286,6 @@ export default function AIImageGenerator({
         if (response.ok) {
           const models = await response.json();
           setTrainedModels(models);
-          console.log(`Loaded ${models.length} trained models`);
         } else {
           console.error("Failed to fetch models:", response.statusText);
           setTrainedModels([]);
@@ -357,8 +344,6 @@ export default function AIImageGenerator({
 
           // Clear the return data
           sessionStorage.removeItem("editedImageReturn");
-
-          console.log("Edited image loaded successfully");
         } catch (error) {
           console.error("Failed to load edited image:", error);
         }
@@ -443,11 +428,6 @@ export default function AIImageGenerator({
           guidance: guidance[0],
           seed: seed[0],
         });
-
-        // Show success message
-        console.log(
-          "Generation started! Your image will appear below when ready."
-        );
       } catch (error) {
         console.error("Async generation failed:", error);
         alert(
@@ -621,7 +601,6 @@ export default function AIImageGenerator({
     message: string,
     type: "success" | "error" | "info" = "info"
   ) => {
-    console.log(`${type.toUpperCase()}: ${message}`);
     if (typeof window !== "undefined" && "alert" in window) {
       if (type === "error") {
         alert(`Error: ${message}`);

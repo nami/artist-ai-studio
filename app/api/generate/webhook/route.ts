@@ -5,7 +5,6 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
-    console.log("🎯 Webhook received:", data.id, data.status);
 
     if (data.status === "succeeded") {
       let imageUrl = "";
@@ -23,8 +22,6 @@ export async function POST(request: NextRequest) {
             status: "completed",
           })
           .eq("prediction_id", data.id);
-
-        console.log("✅ Generation completed via webhook:", data.id);
       }
     } else if (data.status === "failed") {
       await supabaseAdmin
@@ -34,8 +31,6 @@ export async function POST(request: NextRequest) {
           error_message: data.error || "Generation failed",
         })
         .eq("prediction_id", data.id);
-
-      console.log("❌ Generation failed via webhook:", data.id);
     }
 
     return NextResponse.json({ received: true });

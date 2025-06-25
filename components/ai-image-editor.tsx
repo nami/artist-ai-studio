@@ -734,26 +734,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
   }, [showComparison, result, imageUrl, canvasDimensions]);
 
-  // Log canvas state for debugging
-  useEffect(() => {
-    if (result) {
-      console.log("🔍 Canvas state:", {
-        imageUrl: !!imageUrl,
-        canvasReady: !!canvasRef.current,
-        currentSize: canvasRef.current?.width
-          ? `${canvasRef.current.width}×${canvasRef.current.height}`
-          : "❌ Missing",
-        storedDimensions: canvasDimensions
-          ? `${canvasDimensions.width}×${canvasDimensions.height}`
-          : "❌ None",
-        scaleRatio: canvasDimensions
-          ? `${Math.round(canvasDimensions.ratio * 100)}%`
-          : "❌ Unknown",
-        comparisonMode: showComparison ? "✅ Active" : "❌ Inactive",
-      });
-    }
-  }, [result, imageUrl, showComparison, canvasDimensions]);
-
   // Check canvas content and redraw if empty
   useEffect(() => {
     if (canvasRef.current) {
@@ -1450,7 +1430,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                           alt="Result"
                           className="max-w-full max-h-full object-contain"
                           style={{ transform: `scale(${zoom / 100})` }}
-                          onLoad={() => console.log("✅ Result image loaded")}
+                          onLoad={() => {}}
                           onError={(e) =>
                             console.error("❌ Result image failed", e)
                           }
