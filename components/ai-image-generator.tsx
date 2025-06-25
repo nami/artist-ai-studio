@@ -630,37 +630,71 @@ export default function AIImageGenerator({
   };
 
   // Save to gallery function
-  const handleSaveToGallery = async (
-    imageUrl: string,
-    prompt: string,
-    style: string,
-    settings: { steps: number; guidance: number; seed?: number }
-  ) => {
-    setIsSaving(true);
-
-    const result = saveImageToGallery({
-      prompt: prompt.trim(),
-      style: style,
-      imageUrl: imageUrl,
-      settings: {
-        ...settings,
-        seed: settings.seed ?? Math.floor(Math.random() * 1000000),
-      },
-    });
-
-    if (result.success && result.image) {
-      setRecentlySaved(result.image.id);
-      showToast("Image saved to gallery! 🎨", "success");
-      playSound?.("complete");
-
-      // Clear the "recently saved" state after 3 seconds
-      setTimeout(() => setRecentlySaved(null), 3000);
-    } else {
-      showToast("Failed to save image to gallery", "error");
-      playSound?.("error");
+  const handleSaveToGallery = async (generatedImage: GeneratedImage) => {
+    if (!user?.id || !generatedImage.id) {
+      showToast("Cannot save: missing user or image data", "error");
+      return;
     }
 
-    setIsSaving(false);
+    setIsSaving(true);
+
+    try {
+      // For images from the async generation system, use the generation ID directly
+      // For sync images, we need to create a generation record first
+      let generationId = generatedImage.id;
+
+      // Check if this is a sync-generated image (has a random ID instead of UUID)
+      if (generatedImage.id.length < 10 || !generatedImage.id.includes("-")) {
+        // Create a generation record first
+        const generationResponse = await fetch("/api/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: generatedImage.prompt,
+            imageUrl: generatedImage.imageUrl,
+            userId: user.id,
+            settings: generatedImage.settings,
+            isEditedImage: false,
+          }),
+        });
+
+        if (!generationResponse.ok) {
+          throw new Error("Failed to create generation record");
+        }
+
+        const generationData = await generationResponse.json();
+        generationId = generationData.generationId;
+      }
+
+      const result = await saveImageToGallery({
+        generationId: generationId,
+        userId: user.id,
+        title: generatedImage.prompt,
+        tags: [generatedImage.style, generatedImage.modelName || "base"].filter(
+          Boolean
+        ),
+        isFavorite: false,
+      });
+
+      if (result.success) {
+        setRecentlySaved(generationId);
+        showToast("Image saved to gallery! 🎨", "success");
+        playSound?.("complete");
+
+        // Clear the "recently saved" state after 3 seconds
+        setTimeout(() => setRecentlySaved(null), 3000);
+      } else {
+        throw new Error(result.error || "Failed to save to gallery");
+      }
+    } catch (error) {
+      console.error("Failed to save to gallery:", error);
+      showToast("Failed to save image to gallery", "error");
+      playSound?.("error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isClient) {
@@ -1406,14 +1440,7 @@ export default function AIImageGenerator({
                         💾 DOWNLOAD MASTERPIECE
                       </button>
                       <Button
-                        onClick={() =>
-                          handleSaveToGallery(
-                            currentImage.imageUrl,
-                            currentImage.prompt,
-                            currentImage.style,
-                            currentImage.settings
-                          )
-                        }
+                        onClick={() => handleSaveToGallery(currentImage)}
                         disabled={isSaving}
                         className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 font-mono text-sm py-4 uppercase tracking-wide disabled:opacity-50"
                       >

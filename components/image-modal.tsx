@@ -1,57 +1,63 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState, useRef } from "react"
-import { X, Upload, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useSound } from "@/contexts/sound-context"
+import { useState, useRef } from "react";
+import { X, Upload, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSound } from "@/contexts/sound-context";
 
 interface FileWithPreview extends File {
-  id: string
-  preview: string
-  progress: number
-  status: "uploading" | "completed" | "error"
+  id: string;
+  preview: string;
+  progress: number;
+  status: "uploading" | "completed" | "error";
 }
 
 interface ImageModalProps {
-  file: FileWithPreview
-  isOpen: boolean
-  onClose: () => void
-  onDelete: (id: string) => void
-  onReplace: (id: string, file: File) => void
-  playSound?: (sound: string) => void // Optional for backward compatibility
+  file: FileWithPreview;
+  isOpen: boolean;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+  onReplace: (id: string, file: File) => void;
+  playSound?: (sound: string) => void; // Optional for backward compatibility
 }
 
-export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: ImageModalProps) {
-  const [isZoomed, setIsZoomed] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const { play } = useSound()
+export function ImageModal({
+  file,
+  isOpen,
+  onClose,
+  onDelete,
+  onReplace,
+}: ImageModalProps) {
+  const [isZoomed, setIsZoomed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { play } = useSound();
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   const toggleZoom = () => {
-    play("click")
-    setIsZoomed(!isZoomed)
-  }
+    play("click");
+    setIsZoomed(!isZoomed);
+  };
 
   const handleDelete = () => {
-    play("delete")
-    onDelete(file.id)
-    onClose()
-  }
+    play("delete");
+    onDelete(file.id);
+    onClose();
+  };
 
   const handleReplace = () => {
-    play("click")
-    fileInputRef.current?.click()
-  }
+    play("click");
+    fileInputRef.current?.click();
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      onReplace(file.id, e.target.files[0])
-      onClose()
+      onReplace(file.id, e.target.files[0]);
+      onClose();
     }
-  }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-80">
@@ -62,7 +68,9 @@ export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: Image
       >
         {/* Modal Header */}
         <div className="bg-black p-4 flex items-center justify-between border-b border-gray-700">
-          <h3 className="text-white font-mono font-bold uppercase tracking-wider">{file.name || "Image Preview"}</h3>
+          <h3 className="text-white font-mono font-bold uppercase tracking-wider">
+            Image Preview
+          </h3>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
@@ -81,9 +89,11 @@ export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: Image
         >
           <img
             src={file.preview || "/placeholder.svg"}
-            alt={file.name || "Uploaded image"}
+            alt="Uploaded image"
             className={`${
-              isZoomed ? "max-w-none max-h-none cursor-zoom-out" : "max-w-full max-h-[60vh] cursor-zoom-in"
+              isZoomed
+                ? "max-w-none max-h-none cursor-zoom-out"
+                : "max-w-full max-h-[60vh] cursor-zoom-in"
             } object-contain`}
           />
           {isZoomed && (
@@ -96,15 +106,8 @@ export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: Image
         {/* Modal Footer */}
         <div className="bg-gray-800 p-4 border-t border-gray-700">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
-            {/* File Info */}
+            {/* File Status */}
             <div className="text-gray-300 font-mono text-sm">
-              <div className="mb-1">
-                <span className="text-gray-500">Name:</span> {file.name || "Unknown"}
-              </div>
-              <div className="mb-1">
-                <span className="text-gray-500">Size:</span>{" "}
-                {file.size ? (file.size / 1024 / 1024).toFixed(2) + " MB" : "Unknown"}
-              </div>
               <div>
                 <span className="text-gray-500">Status:</span>{" "}
                 <span
@@ -112,8 +115,8 @@ export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: Image
                     file.status === "completed"
                       ? "text-green-400"
                       : file.status === "uploading"
-                        ? "text-yellow-400"
-                        : "text-red-400"
+                      ? "text-yellow-400"
+                      : "text-red-400"
                   }
                 >
                   {file.status.toUpperCase()}
@@ -139,11 +142,17 @@ export function ImageModal({ file, isOpen, onClose, onDelete, onReplace }: Image
               >
                 <Trash2 className="w-4 h-4 mr-1" /> Delete
               </Button>
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
             </div>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -34,12 +34,6 @@ interface FileWithPreview extends File {
   sizeWarning?: boolean;
 }
 
-interface UploadedImage {
-  id: string;
-  preview: string;
-  name: string;
-}
-
 const SUBJECT_TYPES = [
   {
     id: "person",
@@ -84,8 +78,7 @@ export default function ImageTrainingUploader() {
     null
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
   const [completedFiles, setCompletedFiles] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStartingTraining, setIsStartingTraining] = useState(false);
@@ -866,14 +859,14 @@ export default function ImageTrainingUploader() {
                   className={`w-16 h-16 sm:w-20 sm:h-20 border-4 rounded-lg flex items-center justify-center transition-all duration-300 ${
                     files.length >= MAX_FILES
                       ? "border-gray-500 bg-gray-700"
-                      : isUploading
+                      : uploadingFilesCount > 0
                       ? "border-pink-400 bg-pink-500/20 animate-bounce"
                       : "border-gray-500 bg-gray-800"
                   }`}
                 >
                   {files.length >= MAX_FILES ? (
                     <X className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" />
-                  ) : isUploading ? (
+                  ) : uploadingFilesCount > 0 ? (
                     <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-400 animate-spin" />
                   ) : (
                     <Upload
@@ -992,7 +985,7 @@ export default function ImageTrainingUploader() {
                   <div className="aspect-square relative overflow-hidden">
                     <img
                       src={file.preview || "/placeholder.svg"}
-                      alt={file.name || "Uploaded image"}
+                      alt="Uploaded image"
                       className="w-full h-full object-cover"
                     />
 
@@ -1159,7 +1152,6 @@ export default function ImageTrainingUploader() {
           onClose={closeImageModal}
           onDelete={removeFile}
           onReplace={replaceFile}
-          playSound={(sound: string) => play(sound as any)}
         />
       )}
     </div>

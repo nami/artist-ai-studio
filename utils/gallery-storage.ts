@@ -1,165 +1,173 @@
-// Utility functions for storing and retrieving gallery images
-
-import { v4 as uuidv4 } from 'uuid'
+// Database-based gallery storage utilities
 
 export interface GalleryImage {
-  id: string
-  imageUrl: string
-  prompt: string
-  style: string
-  timestamp: Date
+  id: string;
+  imageUrl: string;
+  prompt: string;
+  title: string;
+  timestamp: Date;
   settings: {
-    steps: number
-    guidance: number
-    seed: number
-  }
-  isFavorite: boolean
-  tags: string[]
-  metadata: {
-    width: number
-    height: number
-    fileSize: number
-  }
+    steps: number;
+    guidance: number;
+    seed: number;
+  };
+  isFavorite: boolean;
+  tags: string[];
+  generationId: string;
 }
 
-export const saveGalleryImage = (image: GalleryImage): boolean => {
+// Save a generation to the gallery
+export async function saveToGallery(params: {
+  generationId: string;
+  userId: string;
+  title?: string;
+  tags?: string[];
+  isFavorite?: boolean;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  galleryItem?: {
+    id: string;
+    title: string;
+    tags: string[];
+    isFavorite: boolean;
+    createdAt: string;
+  };
+}> {
   try {
-    const existingImages = getGalleryImages()
-    const updatedImages = [image, ...existingImages]
-    localStorage.setItem("galleryImages", JSON.stringify(updatedImages))
-    return true
-  } catch (error) {
-    console.error("Error saving gallery image:", error)
-    return false
-  }
-}
+    const response = await fetch("/api/gallery", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(params),
+    });
 
-export const getGalleryImages = (): GalleryImage[] => {
-  try {
-    const storedImages = localStorage.getItem("galleryImages")
-    if (storedImages) {
-      const parsed = JSON.parse(storedImages)
-      return parsed.map((img: any) => ({
-        ...img,
-        timestamp: new Date(img.timestamp),
-      }))
+    if (!response.ok) {
+      const error = await response.json();
+      return {
+        success: false,
+        error: error.error || "Failed to save to gallery",
+      };
     }
+
+    const data = await response.json();
+    return { success: true, galleryItem: data.galleryItem };
   } catch (error) {
-    console.error("Error loading gallery images:", error)
+    console.error("Error saving to gallery:", error);
+    return { success: false, error: "Network error" };
   }
-  return []
 }
 
-export const updateGalleryImage = (id: string, updates: Partial<GalleryImage>): boolean => {
+// Get gallery images for a user
+export async function getGalleryImages(
+  userId: string
+): Promise<GalleryImage[]> {
   try {
-    const images = getGalleryImages()
-    const updatedImages = images.map((img) => (img.id === id ? { ...img, ...updates } : img))
-    localStorage.setItem("galleryImages", JSON.stringify(updatedImages))
-    return true
-  } catch (error) {
-    console.error("Error updating gallery image:", error)
-    return false
-  }
-}
+    const response = await fetch(
+      `/api/gallery?userId=${encodeURIComponent(userId)}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-export const deleteGalleryImage = (id: string): boolean => {
-  try {
-    const images = getGalleryImages()
-    const filteredImages = images.filter((img) => img.id !== id)
-    localStorage.setItem("galleryImages", JSON.stringify(filteredImages))
-    return true
-  } catch (error) {
-    console.error("Error deleting gallery image:", error)
-    return false
-  }
-}
-
-export const deleteMultipleGalleryImages = (ids: string[]): boolean => {
-  try {
-    const images = getGalleryImages()
-    const filteredImages = images.filter((img) => !ids.includes(img.id))
-    localStorage.setItem("galleryImages", JSON.stringify(filteredImages))
-    return true
-  } catch (error) {
-    console.error("Error deleting multiple gallery images:", error)
-    return false
-  }
-}
-
-export const clearGalleryImages = (): void => {
-  try {
-    localStorage.removeItem("galleryImages")
-  } catch (error) {
-    console.error("Error clearing gallery images:", error)
-  }
-}
-
-// Add this function to save images to gallery
-export function saveToGallery(imageData: {
-  prompt: string
-  style: string
-  imageUrl: string
-  settings?: {
-    steps: number
-    guidance: number
-    seed: number
-  }
-}): GalleryImage {
-  const newImage: GalleryImage = {
-    id: uuidv4(),
-    prompt: imageData.prompt,
-    style: imageData.style || 'none',
-    imageUrl: imageData.imageUrl,
-    timestamp: new Date(),
-    tags: [], // Auto-generate tags from prompt if needed
-    isFavorite: false,
-    settings: imageData.settings || {
-      steps: 30,
-      guidance: 7.5,
-      seed: Math.floor(Math.random() * 1000000)
-    },
-    metadata: {
-      width: 0, // These will be updated when the image is loaded
-      height: 0,
-      fileSize: 0
+    if (!response.ok) {
+      console.error("Failed to fetch gallery images");
+      return [];
     }
-  }
 
-  // Get existing images
-  const existingImages = getGalleryImages()
-  
-  // Add new image to the beginning (newest first)
-  const updatedImages = [newImage, ...existingImages]
-  
-  // Save to localStorage
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('galleryImages', JSON.stringify(updatedImages))
-  }
+    const data = await response.json();
 
-  return newImage
+    // Transform the database response to match our GalleryImage interface
+    return (data.images || []).map(
+      (item: {
+        id: string;
+        created_at: string;
+        title: string;
+        tags: string[];
+        is_favorite: boolean;
+        generations?: {
+          id: string;
+          prompt: string;
+          image_url: string;
+          settings: Record<string, unknown>;
+        };
+      }) => ({
+        id: item.id,
+        imageUrl: item.generations?.image_url || "",
+        prompt: item.generations?.prompt || "",
+        title: item.title || item.generations?.prompt || "",
+        timestamp: new Date(item.created_at),
+        settings: item.generations?.settings || {
+          steps: 30,
+          guidance: 7.5,
+          seed: 0,
+        },
+        isFavorite: item.is_favorite || false,
+        tags: item.tags || [],
+        generationId: item.generations?.id || "",
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching gallery images:", error);
+    return [];
+  }
 }
 
-// Save to Gallery Hook for React components
+// Delete a gallery image
+export async function deleteGalleryImage(
+  galleryId: string,
+  userId: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/gallery/${galleryId}?userId=${encodeURIComponent(userId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Failed to delete gallery image");
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error deleting gallery image:", error);
+    return false;
+  }
+}
+
+// Hook for saving to gallery
 export function useSaveToGallery() {
-  const saveImageToGallery = (imageData: {
-    prompt: string
-    style: string
-    imageUrl: string
-    settings?: {
-      steps: number
-      guidance: number
-      seed: number
-    }
+  const saveImageToGallery = async (params: {
+    generationId: string;
+    userId: string;
+    title?: string;
+    tags?: string[];
+    isFavorite?: boolean;
   }) => {
     try {
-      const savedImage = saveToGallery(imageData)
-      console.log('✅ Image saved to gallery:', savedImage.id)
-      return { success: true, image: savedImage }
+      const result = await saveToGallery(params);
+      if (result.success) {
+        console.log("✅ Image saved to gallery:", result.galleryItem?.id);
+        return { success: true, galleryItem: result.galleryItem };
+      } else {
+        console.error("❌ Failed to save image to gallery:", result.error);
+        return { success: false, error: result.error };
+      }
     } catch (error) {
-      console.error('❌ Failed to save image to gallery:', error)
-      return { success: false, error }
+      console.error("❌ Failed to save image to gallery:", error);
+      return { success: false, error: "Network error" };
     }
-  }
+  };
 
-  return { saveImageToGallery }
+  return { saveImageToGallery };
 }

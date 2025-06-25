@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useSaveToGallery } from "@/utils/gallery-storage";
+import { useAuth } from "@/hooks/use-auth";
 
 type Tool = "brush" | "eraser" | "magic" | "rectangle";
 type EditMode = "inpaint" | "outpaint" | "replace";
@@ -141,6 +142,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   const { saveImageToGallery } = useSaveToGallery();
   const [isSaving, setIsSaving] = useState(false);
   const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
+  const { user } = useAuth();
 
   // Simple toast function for user feedback
   const showToast = (
@@ -848,36 +850,70 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
   // Save edited image to gallery
   const handleSaveEditToGallery = async () => {
-    if (!result) return;
+    if (!result || !user?.id) return;
 
     setIsSaving(true);
 
-    // Create description for the edited image
-    const editDescription = originalImageData
-      ? `${originalImageData.prompt} (edited: ${prompt})`
-      : `Edited image: ${prompt}`;
+    try {
+      // First, we need to save the edited image as a generation in the database
+      const editDescription = originalImageData
+        ? `${originalImageData.prompt} (edited: ${prompt})`
+        : `Edited image: ${prompt}`;
 
-    const saveResult = saveImageToGallery({
-      prompt: editDescription,
-      style: originalImageData?.style || "edited",
-      imageUrl: result,
-      settings: originalImageData?.settings || {
-        steps: 30,
-        guidance: 7.5,
-        seed: Math.floor(Math.random() * 1000000),
-      },
-    });
+      // Create a generation record for the edited image
+      const generationResponse = await fetch("/api/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: editDescription,
+          imageUrl: result, // The edited image URL
+          userId: user.id,
+          settings: {
+            steps: originalImageData?.settings?.steps || 30,
+            guidance: originalImageData?.settings?.guidance || 7.5,
+            seed:
+              originalImageData?.settings?.seed ||
+              Math.floor(Math.random() * 1000000),
+          },
+          isEditedImage: true, // Flag to indicate this is an edited image
+        }),
+      });
 
-    if (saveResult.success && saveResult.image) {
-      setRecentlySaved(saveResult.image.id);
-      showToast("Edited image saved to gallery! 🎨", "success");
+      if (!generationResponse.ok) {
+        throw new Error("Failed to save edited image as generation");
+      }
 
-      setTimeout(() => setRecentlySaved(null), 3000);
-    } else {
+      const generationData = await generationResponse.json();
+      const generationId = generationData.generationId;
+
+      if (!generationId) {
+        throw new Error("No generation ID returned");
+      }
+
+      // Now save the generation to the gallery
+      const saveResult = await saveImageToGallery({
+        generationId: generationId,
+        userId: user.id,
+        title: editDescription,
+        tags: ["edited", "inpaint"],
+        isFavorite: false,
+      });
+
+      if (saveResult.success) {
+        setRecentlySaved(generationId);
+        showToast("Edited image saved to gallery! 🎨", "success");
+        setTimeout(() => setRecentlySaved(null), 3000);
+      } else {
+        throw new Error(saveResult.error || "Failed to save to gallery");
+      }
+    } catch (error) {
+      console.error("Failed to save edited image:", error);
       showToast("Failed to save edited image to gallery", "error");
+    } finally {
+      setIsSaving(false);
     }
-
-    setIsSaving(false);
   };
 
   if (!isClient) {
