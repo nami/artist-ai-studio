@@ -3,6 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import Replicate from "replicate";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+// CORS headers for cross-origin requests
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 200, headers: corsHeaders });
+}
+
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
@@ -19,8 +30,6 @@ export async function POST(request: NextRequest) {
       seed,
     } = body;
 
-    console.log("🚀 Starting generation...");
-
     let model: `${string}/${string}` = "black-forest-labs/flux-schnell";
     let finalPrompt = prompt;
     let isUsingCustomModel = false;
@@ -36,8 +45,11 @@ export async function POST(request: NextRequest) {
       if (dataset?.model_version && dataset?.training_status === "completed") {
         model = dataset.model_version;
         isUsingCustomModel = true;
-        
-        if (dataset.trigger_word && !finalPrompt.includes(dataset.trigger_word)) {
+
+        if (
+          dataset.trigger_word &&
+          !finalPrompt.includes(dataset.trigger_word)
+        ) {
           finalPrompt = `${dataset.trigger_word} ${finalPrompt}`;
         }
       }
@@ -64,13 +76,15 @@ export async function POST(request: NextRequest) {
     if (seed) input.seed = seed;
 
     // Decide: async vs sync based on model and environment
-    const useAsync = isUsingCustomModel || process.env.NODE_ENV === 'production';
+    const useAsync =
+      isUsingCustomModel || process.env.NODE_ENV === "production";
 
     if (useAsync) {
       // ASYNC: Start prediction, don't wait
-      const webhookUrl = process.env.NODE_ENV === 'production' 
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/generate/webhook`
-        : undefined;
+      const webhookUrl =
+        process.env.NODE_ENV === "production"
+          ? `${process.env.NEXT_PUBLIC_APP_URL}/api/generate/webhook`
+          : undefined;
 
       let prediction;
       if (isUsingCustomModel) {
@@ -78,26 +92,26 @@ export async function POST(request: NextRequest) {
           version: model.includes(":") ? model.split(":")[1] : model,
           input,
         };
-        
+
         // Only add webhook params if we have a webhook URL
         if (webhookUrl) {
           createParams.webhook = webhookUrl;
           createParams.webhook_events_filter = ["completed"];
         }
-        
+
         prediction = await replicate.predictions.create(createParams);
       } else {
         const createParams: any = {
           model,
           input,
         };
-        
+
         // Only add webhook params if we have a webhook URL
         if (webhookUrl) {
           createParams.webhook = webhookUrl;
           createParams.webhook_events_filter = ["completed"];
         }
-        
+
         prediction = await replicate.predictions.create(createParams);
       }
 
@@ -122,13 +136,15 @@ export async function POST(request: NextRequest) {
         .select()
         .single();
 
-      return NextResponse.json({
-        generationId: generation?.id,
-        predictionId: prediction.id,
-        status: "generating",
-        estimatedTime: isUsingCustomModel ? "2-3 minutes" : "30-60 seconds"
-      });
-
+      return NextResponse.json(
+        {
+          generationId: generation?.id,
+          predictionId: prediction.id,
+          status: "generating",
+          estimatedTime: isUsingCustomModel ? "2-3 minutes" : "30-60 seconds",
+        },
+        { headers: corsHeaders }
+      );
     } else {
       // SYNC: Wait for completion (for base model on localhost)
       const output = await replicate.run(model, { input });
@@ -154,18 +170,23 @@ export async function POST(request: NextRequest) {
         .select()
         .single();
 
-      return NextResponse.json({
-        imageUrl,
-        generationId: generation?.id,
-        status: "completed"
-      });
+      return NextResponse.json(
+        {
+          imageUrl,
+          generationId: generation?.id,
+          status: "completed",
+        },
+        { headers: corsHeaders }
+      );
     }
-
   } catch (error) {
-    console.error("💥 Generation error:", error);
     return NextResponse.json(
-      { error: `Failed to generate: ${error instanceof Error ? error.message : "Unknown error"}` },
-      { status: 500 }
+      {
+        error: `Failed to generate: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      },
+      { status: 500, headers: corsHeaders }
     );
   }
 }
