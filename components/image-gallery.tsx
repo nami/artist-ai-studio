@@ -66,7 +66,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
 
         setIsLoading(false);
       } catch (error) {
-        console.error("❌ Error loading gallery images:", error);
         setIsLoading(false);
       }
     };
@@ -90,7 +89,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
         setImages(galleryImages);
         setIsLoading(false);
       } catch (error) {
-        console.error("❌ Error refreshing gallery:", error);
         setIsLoading(false);
       }
     }, 500);
@@ -98,7 +96,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
 
   const deleteImage = async (id: string) => {
     if (!user?.id) {
-      console.error("Cannot delete: no user authenticated");
       return;
     }
 
@@ -106,8 +103,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
     if (success) {
       setImages((prev) => prev.filter((img) => img.id !== id));
       playSound?.("delete");
-    } else {
-      console.error("Failed to delete image from gallery");
     }
   };
 
@@ -338,10 +333,6 @@ export function ImageGallery({ onBack, playSound }: ImageGalleryProps) {
               alt={lightboxImage.prompt}
               className="max-w-full max-h-[calc(100vh-8rem)] object-contain mx-auto rounded-lg"
               onError={(e) => {
-                console.error(
-                  "❌ Image failed to load:",
-                  lightboxImage.imageUrl
-                );
                 const target = e.target as HTMLImageElement;
                 target.style.display = "none";
                 // Show error placeholder
@@ -421,6 +412,21 @@ function GalleryGridItem({
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  // NEW: Add AI edit function
+  const editWithAI = (image: GalleryImage) => {
+    // Store image data for AI editing
+    sessionStorage.setItem("aiEditImageData", JSON.stringify({
+      id: image.id,
+      imageUrl: image.imageUrl,
+      originalPrompt: image.prompt,
+      editMode: "ai-edit", // Flag to use FLUX Kontext
+      timestamp: new Date().toISOString()
+    }));
+    
+    // Navigate to edit page
+    window.location.href = "/edit";
+  };
+
   return (
     <div
       className="relative break-inside-avoid mb-4 group cursor-pointer"
@@ -445,7 +451,6 @@ function GalleryGridItem({
             alt={image.prompt}
             className="w-full h-auto object-cover transition-transform duration-300 hover:scale-105"
             onError={() => {
-              console.error("❌ Image failed to load:", image.imageUrl);
               setImageError(true);
             }}
           />
@@ -466,6 +471,18 @@ function GalleryGridItem({
               >
                 <Download className="w-4 h-4" />
               </Button>
+                              <Button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    editWithAI(image);
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="text-purple-400 hover:scale-110 hover:bg-purple-500/20"
+                  title="Edit with AI"
+                >
+                  ✨
+                </Button>
               <Button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -537,7 +554,6 @@ function GalleryListItem({
               alt={image.prompt}
               className="w-24 h-24 object-cover rounded-lg hover:scale-105 transition-transform"
               onError={() => {
-                console.error("❌ Image failed to load:", image.imageUrl);
                 setImageError(true);
               }}
             />

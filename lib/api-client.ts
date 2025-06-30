@@ -36,7 +36,6 @@ export const uploadImages = async (files: File[]) => {
 
     return data.urls as string[];
   } catch (error) {
-    console.error("💥 Upload failed:", error);
     throw error;
   }
 };
@@ -86,15 +85,31 @@ export const generateImage = async (params: {
 // Keep your existing advanced generateImage function with a different name
 export const generateAdvancedImage = async (params: {
   prompt: string;
-  datasetId?: string;
+  steps?: number;
+  guidance?: number;
+  seed?: number;
   userId: string;
-  style?: string;
-  negativePrompt?: string;
-  composition?: string;
-  controlImage?: string;
-  controlType?: "pose" | "canny" | "depth";
+  datasetId?: string;
 }) => {
   const { data } = await api.post("/api/generate", params);
+  return data;
+};
+
+// NEW: Add FLUX.1 Kontext image editing function
+export const editImageWithAI = async (params: {
+  prompt: string;
+  imageInput: string; // Base64 encoded image or image URL
+  userId: string;
+  steps?: number;
+  guidance?: number;
+  seed?: number;
+}) => {
+  const requestData = {
+    ...params,
+    editMode: true, // Flag to use FLUX.1 Kontext
+  };
+  
+  const { data } = await api.post("/api/generate", requestData);
   return data;
 };
 

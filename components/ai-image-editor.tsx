@@ -40,7 +40,7 @@ import { useSaveToGallery } from "@/utils/gallery-storage";
 import { useAuth } from "@/hooks/use-auth";
 
 type Tool = "brush" | "eraser" | "magic" | "rectangle";
-type EditMode = "inpaint" | "outpaint" | "replace";
+type EditMode = "inpaint" | "outpaint" | "replace" | "ai-edit";
 
 interface ImageData {
   id: string;
@@ -84,6 +84,74 @@ const QUICK_PROMPTS = {
     "change to winter scene",
     "make it vintage style",
   ],
+};
+
+// Add mode configurations
+const EDIT_MODES = {
+  inpaint: {
+    title: "🎨 Inpaint",
+    subtitle: "Paint to Replace",
+    description: "Paint over areas you want to change. Perfect for fixing details, removing objects, or replacing specific parts.",
+    example: "Paint over a person's shirt → \"red dress\"",
+    requiresMask: true,
+    icon: "🖌️"
+  },
+  outpaint: {
+    title: "🖼️ Outpaint", 
+    subtitle: "Extend Canvas",
+    description: "Expand your image beyond its borders. AI generates new content that seamlessly continues the scene.",
+    example: "Extend a portrait to show full body",
+    requiresMask: false,
+    icon: "⬆️"
+  },
+  replace: {
+    title: "🔄 Replace",
+    subtitle: "Swap Objects", 
+    description: "Select an area and completely replace it with something new while maintaining the scene's lighting and style.",
+    example: "Select a car → \"bicycle\"",
+    requiresMask: true,
+    icon: "🔄"
+  },
+  "ai-edit": {
+    title: "✨ AI Edit",
+    subtitle: "Smart Text Editing",
+    description: "Edit your entire image using just text descriptions. No painting required! Change backgrounds, add objects, modify styles - all with words.",
+    example: "\"add sunglasses, change background to sunset\"",
+    requiresMask: false,
+    icon: "💬",
+    isNew: true
+  }
+} as const;
+
+const AI_EDIT_PROMPTS = {
+  style: [
+    "make it vintage style",
+    "convert to black and white",
+    "make it look like a painting",
+    "add film grain effect",
+    "make it look like a sketch"
+  ],
+  background: [
+    "change background to sunset",
+    "add a city skyline background",
+    "place in a forest setting",
+    "change to studio white background",
+    "add a beach background"
+  ],
+  objects: [
+    "add sunglasses",
+    "add a hat",
+    "add jewelry",
+    "add flowers in the background",
+    "add a smile"
+  ],
+  lighting: [
+    "add dramatic lighting",
+    "make it brighter",
+    "add golden hour lighting",
+    "add soft lighting",
+    "make it moody and dark"
+  ]
 };
 
 export default function AIImageEditor({ onBack }: ImageEditorProps) {
@@ -144,6 +212,14 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
   const { user } = useAuth();
 
+  // NEW: Add state for AI editing
+  const [isAIEditMode, setIsAIEditMode] = useState(false);
+  const [aiEditPrompt, setAiEditPrompt] = useState("");
+  const [originalImageForAI, setOriginalImageForAI] = useState<string>("");
+  
+  // Add state to track if we need to reinitialize canvas after mode switch
+  const [needsCanvasReinit, setNeedsCanvasReinit] = useState(false);
+
   // Simple toast function for user feedback
   const showToast = (
     message: string,
@@ -162,7 +238,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
       return date.toLocaleTimeString();
     } catch (error) {
-      console.error("Error formatting timestamp:", error);
       return "Invalid time";
     }
   };
@@ -196,6 +271,24 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     if (!isClient) return;
 
     try {
+      // Check for AI edit data first (from gallery)
+      const aiEditData = sessionStorage?.getItem("aiEditImageData");
+      if (aiEditData) {
+        const data = JSON.parse(aiEditData);
+        setOriginalImageForAI(data.imageUrl);
+        setImageUrl(data.imageUrl);
+        setEditMode("ai-edit");
+        setIsAIEditMode(true);
+        // Set AI edit prompt instead of regular prompt
+        setAiEditPrompt("");
+        setPrompt(""); // Clear regular prompt
+        
+        sessionStorage?.removeItem("aiEditImageData");
+        showToast("Image loaded for AI editing!", "success");
+        return;
+      }
+
+      // Fall back to regular edit data (from generator)
       const storedData = sessionStorage?.getItem("editImageData");
       if (storedData) {
         const rawImageData = JSON.parse(storedData);
@@ -206,32 +299,23 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
         setOriginalImageData(imageData);
         setImageUrl(imageData.imageUrl);
-
         setEditHistory([imageData.imageUrl]);
         setCurrentEditIndex(0);
-
         setPrompt("");
 
-        showToast(
-          `Image loaded for editing: '${imageData.prompt.substring(0, 30)}...'`,
-          "success"
-        );
+        showToast(`Image loaded for editing: '${imageData.prompt.substring(0, 30)}...'`, "success");
         sessionStorage?.removeItem("editImageData");
       } else {
+        // Placeholder for demo
         const placeholderUrl = "https://picsum.photos/800/600";
         setImageUrl(placeholderUrl);
         setEditHistory([placeholderUrl]);
         setCurrentEditIndex(0);
         showToast("No image data found, using placeholder for demo", "info");
       }
-    } catch (error) {
-      console.error("Error loading image data:", error);
-      const fallbackUrl = "https://picsum.photos/800/600";
-      setImageUrl(fallbackUrl);
-      setEditHistory([fallbackUrl]);
-      setCurrentEditIndex(0);
-      showToast("Failed to load image data", "error");
-    }
+          } catch (error) {
+        showToast("Failed to load image data", "error");
+      }
   }, [isClient]);
 
   // Initialize canvas with proper sizing and dimensions
@@ -294,15 +378,54 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       // Draw image at calculated size
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
+      
+      // Clear any previous mask when reinitializing
+      const maskCtx = maskCanvas.getContext("2d")!;
+      maskCtx.clearRect(0, 0, width, height);
     };
 
-    img.onerror = (error: Event | string) => {
-      console.error("Failed to load image for canvas:", error);
+    img.onerror = () => {
       showToast("Failed to load image", "error");
     };
 
     img.src = imageUrl;
-  }, [imageUrl, isClient]);
+  }, [imageUrl, isClient, needsCanvasReinit]);
+
+  // Handle edit mode changes - reinitialize canvas when switching from AI edit to other modes
+  useEffect(() => {
+    const wasAIEditMode = isAIEditMode;
+    const isNowAIEditMode = editMode === "ai-edit";
+    
+    setIsAIEditMode(isNowAIEditMode);
+    
+    // If switching FROM AI edit TO another mode, reinitialize canvas
+    if (wasAIEditMode && !isNowAIEditMode && imageUrl) {
+      setNeedsCanvasReinit(prev => !prev); // Toggle to trigger canvas reinit
+      
+      // Clear any editing states
+      setResult(null);
+      setShowComparison(false);
+      
+      // Reset tool to brush to ensure drawing tools are active
+      setTool("brush");
+      
+      // Make sure mask is visible for drawing modes
+      if (editMode !== "outpaint") {
+        setShowMask(true);
+      }
+      
+      setTimeout(() => {
+        // Clear any existing mask to start fresh
+        if (maskCanvasRef.current) {
+          const ctx = maskCanvasRef.current.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
+          }
+        }
+        showToast("Switched to drawing mode - brush tools are now active!", "success");
+      }, 200);
+    }
+  }, [editMode, isAIEditMode, imageUrl]);
 
   // Drawing functions for mask creation
   const startDrawing = useCallback(
@@ -436,7 +559,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
 
   // Handle quick prompt selection and prevent duplicates
   const handleQuickPrompt = (quickPrompt: string) => {
-    const currentPrompt = prompt.trim();
+    // Handle both AI edit mode and regular modes
+    const currentPrompt = editMode === "ai-edit" ? aiEditPrompt.trim() : prompt.trim();
+    const setCurrentPrompt = editMode === "ai-edit" ? setAiEditPrompt : setPrompt;
 
     if (currentPrompt.toLowerCase().includes(quickPrompt.toLowerCase())) {
       showToast(`'${quickPrompt}' is already in your prompt`, "info");
@@ -444,9 +569,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     }
 
     if (!currentPrompt) {
-      setPrompt(quickPrompt);
+      setCurrentPrompt(quickPrompt);
     } else {
-      setPrompt(`${currentPrompt}, ${quickPrompt}`);
+      setCurrentPrompt(`${currentPrompt}, ${quickPrompt}`);
     }
 
     showToast(`Added: '${quickPrompt}'`, "success");
@@ -646,7 +771,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         "success"
       );
     } catch (error) {
-      console.error("Edit failed:", error);
       showToast(
         `Edit failed: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -679,8 +803,8 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       ctx.clearRect(0, 0, canvasDimensions.width, canvasDimensions.height);
       ctx.drawImage(img, 0, 0, canvasDimensions.width, canvasDimensions.height);
     };
-    img.onerror = (error) => {
-      console.error("❌ Failed to redraw canvas:", error);
+    img.onerror = () => {
+      // Silently handle redraw failure
     };
     img.src = imageUrl;
   }, [imageUrl, isClient, canvasDimensions]);
@@ -696,6 +820,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     setResult(null);
     setShowComparison(false);
     setHasUnsavedChanges(false);
+    
+    // Clear prompts
+    setPrompt("");
+    setAiEditPrompt("");
 
     // Redraw canvas with proper dimensions
     setTimeout(() => {
@@ -748,7 +876,6 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       const hasContent = imageData.data.some((pixel) => pixel > 0);
 
       if (!hasContent) {
-        console.warn("⚠️ Canvas appears empty, attempting redraw...");
         redrawCanvas();
       }
     }
@@ -821,6 +948,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
     setHasUnsavedChanges(false);
     clearMask();
     setPrompt("");
+    setAiEditPrompt("");
 
     showToast(
       "Edit accepted! You can continue editing from this new version.",
@@ -889,10 +1017,112 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
         throw new Error(saveResult.error || "Failed to save to gallery");
       }
     } catch (error) {
-      console.error("Failed to save edited image:", error);
       showToast("Failed to save edited image to gallery", "error");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // NEW: Handle AI Edit processing
+  const processAIEdit = async () => {
+    // Use originalImageForAI if available, otherwise fall back to imageUrl
+    const sourceImage = originalImageForAI || imageUrl;
+    
+    if (!aiEditPrompt.trim() || !sourceImage) {
+      showToast("Please enter an edit description and ensure image is loaded", "error");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      // Convert image to base64 if it's a URL (FLUX.1 Kontext prefers base64)
+      let imageInput = sourceImage;
+      
+      if (sourceImage.startsWith('http')) {
+        try {
+          // Convert URL to base64
+          const response = await fetch(sourceImage);
+          const blob = await response.blob();
+          imageInput = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          // Image converted to base64
+        } catch (error) {
+          // Failed to convert to base64, using URL as fallback
+          // Fallback to URL if conversion fails
+        }
+      }
+      
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: aiEditPrompt,
+          imageInput: imageInput,
+          editMode: true,
+          userId: user?.id,
+          steps: 28,
+          guidance: 3.5
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to process AI edit');
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'generating') {
+        // Poll for completion
+        const pollResult = async () => {
+          try {
+            const statusResponse = await fetch(`/api/generate/status/${data.generationId}`);
+            
+            if (!statusResponse.ok) {
+              return;
+            }
+            
+            const status = await statusResponse.json();
+          
+            if (status.status === 'completed') {
+              if (status.imageUrl) {
+                setResult(status.imageUrl);
+                setEditHistory(prev => [...prev, status.imageUrl]);
+                setCurrentEditIndex(prev => prev + 1);
+                setHasUnsavedChanges(true);
+                setShowComparison(true); // Show the result!
+                showToast("AI edit completed!", "success");
+              } else {
+                showToast("AI edit completed but no image returned", "error");
+              }
+            } else if (status.status === 'failed') {
+              throw new Error(status.error || 'AI edit failed');
+            } else {
+              // Still processing, poll again
+              setTimeout(pollResult, 3000);
+            }
+          } catch (error) {
+            showToast("Error checking AI edit status", "error");
+          }
+        };
+        
+        setTimeout(pollResult, 3000);
+      } else if (data.imageUrl) {
+        // Immediate result
+        setResult(data.imageUrl);
+        setEditHistory(prev => [...prev, data.imageUrl]);
+        setCurrentEditIndex(prev => prev + 1);
+        setHasUnsavedChanges(true);
+        setShowComparison(true); // Show the result!
+        showToast("AI edit completed!", "success");
+      }
+      
+    } catch (error) {
+      showToast("AI edit failed. Please try again.", "error");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -901,7 +1131,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
   }
 
   return (
-    <div className="w-full h-[calc(100vh-4rem)] bg-black p-2 sm:p-4 overflow-hidden">
+    <div className="w-full min-h-screen lg:h-[calc(100vh-4rem)] bg-black p-2 sm:p-4 lg:overflow-hidden overflow-x-hidden">
       {/* Sound Control */}
       <button
         onClick={() => setIsMuted(!isMuted)}
@@ -916,7 +1146,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
       </button>
 
       {/* Main Container */}
-      <div className="bg-gray-900 rounded-lg border-4 border-gray-700 shadow-2xl relative overflow-hidden h-full">
+      <div className="bg-gray-900 rounded-lg border-4 border-gray-700 shadow-2xl relative lg:overflow-hidden min-h-[calc(100vh-8rem)] lg:h-full">
         {/* Scanlines Effect */}
         <div className="absolute inset-0 pointer-events-none opacity-10">
           <div
@@ -1013,9 +1243,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
         )}
 
-        <div className="relative z-10 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4 xl:items-start h-[calc(100%-6rem)]">
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-4 gap-4 p-2 sm:p-4 lg:items-start min-h-0 pb-8 lg:pb-0">
           {/* Left Panel - Tools & ControlNet */}
-          <div className="xl:col-span-1 space-y-4 overflow-y-auto pr-2 h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-purple-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-purple-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
+          <div className="lg:col-span-1 space-y-4 lg:overflow-y-auto lg:pr-2 lg:h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-purple-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-purple-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-purple-500/20">
             {/* Edit Mode */}
             <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
@@ -1026,22 +1256,62 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 value={editMode}
                 onValueChange={(value) => setEditMode(value as EditMode)}
               >
-                <TabsList className="grid w-full grid-cols-3 gap-1 bg-gray-800/50 p-1">
-                  <TabsTrigger value="inpaint" className="text-xs font-mono">
+                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1 bg-gray-800/50 p-1">
+                  <TabsTrigger value="inpaint" className="text-xs font-mono px-1 sm:px-3">
                     FILL
                   </TabsTrigger>
-                  <TabsTrigger value="outpaint" className="text-xs font-mono">
+                  <TabsTrigger value="outpaint" className="text-xs font-mono px-1 sm:px-3">
                     EXPAND
                   </TabsTrigger>
-                  <TabsTrigger value="replace" className="text-xs font-mono">
+                  <TabsTrigger value="replace" className="text-xs font-mono px-1 sm:px-3">
                     REPLACE
                   </TabsTrigger>
+                  <TabsTrigger value="ai-edit" className="text-xs font-mono relative px-1 sm:px-3">
+                    <span className="flex items-center gap-1">
+                      <span className="hidden sm:inline">✨ </span>AI<span className="hidden sm:inline"> EDIT</span>
+                      <Badge className="bg-green-500 text-black text-xs px-1 py-0 hidden sm:inline">
+                        NEW
+                      </Badge>
+                    </span>
+                  </TabsTrigger>
                 </TabsList>
-              </Tabs>
-            </div>
+                              </Tabs>
+              </div>
 
-            {/* Enhanced Drawing Tools */}
-            <div className="bg-gradient-to-br from-black/60 via-cyan-900/20 to-blue-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4">
+            {/* AI Edit Info Panel - Only show for AI Edit */}
+            {editMode === "ai-edit" && (
+              <div className="bg-gradient-to-br from-black/60 via-purple-900/20 to-pink-900/20 backdrop-blur-sm border-2 border-purple-400/50 rounded-xl p-4">
+                <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  ✨ AI EDIT MODE
+                </Label>
+                
+                <div className="space-y-3">
+                  <div className="bg-green-900/20 border border-green-400/30 rounded-lg p-3">
+                    <div className="text-green-400 font-mono text-sm font-bold mb-2">
+                      🚀 NO BRUSH NEEDED!
+                    </div>
+                    <div className="text-green-300 font-mono text-xs leading-relaxed">
+                      • Just type what you want to change<br/>
+                      • No painting or selecting required<br/>
+                      • AI understands your entire image<br/>
+                      • Works on any image from gallery
+                    </div>
+                  </div>
+                  
+                  <div className="bg-purple-900/20 border border-purple-400/30 rounded-lg p-3">
+                    <div className="text-purple-400 font-mono text-xs">
+                      <strong>POWERED BY FLUX.1 KONTEXT</strong><br/>
+                      The most advanced text-based image editor
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Enhanced Drawing Tools - Hidden for AI Edit */}
+            {editMode !== "ai-edit" && (
+              <div className="bg-gradient-to-br from-black/60 via-cyan-900/20 to-blue-900/20 backdrop-blur-sm border-2 border-cyan-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
                 <Palette className="w-4 h-4 text-cyan-400" />
                 SELECTION TOOLS
@@ -1252,8 +1522,10 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 </Button>
               </div>
             </div>
+            )}
 
-            {/* ControlNet Panel */}
+            {/* ControlNet Panel - Hidden for AI Edit */}
+            {editMode !== "ai-edit" && (
             <div className="bg-gradient-to-br from-black/60 via-green-900/20 to-emerald-900/20 backdrop-blur-sm border-2 border-green-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
                 <Settings className="w-4 h-4 text-green-400" />
@@ -1347,9 +1619,11 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 )}
               </div>
             </div>
+            )}
 
-            {/* Mask precision tips panel */}
-            <div className="bg-gradient-to-br from-gray-800/50 to-yellow-800/30 border-2 border-yellow-600/50 rounded-lg p-3">
+            {/* Mask precision tips panel - Hidden for AI Edit */}
+            {editMode !== "ai-edit" && (
+              <div className="bg-gradient-to-br from-gray-800/50 to-yellow-800/30 border-2 border-yellow-600/50 rounded-lg p-3">
               <h4 className="text-xs font-mono text-yellow-400 uppercase tracking-wide mb-2 flex items-center gap-2">
                 <Target className="w-3 h-3" />
                 PRECISION TIPS
@@ -1365,15 +1639,16 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Center Panel - Canvas */}
-          <div className="xl:col-span-2">
-            <div className="bg-gradient-to-br from-black/60 via-gray-900/20 to-black/60 backdrop-blur-sm border-2 border-gray-400/50 rounded-xl p-4 h-full">
-              <div className="flex items-center justify-between mb-4">
+          <div className="lg:col-span-2 order-first lg:order-none">
+            <div className="bg-gradient-to-br from-black/60 via-gray-900/20 to-black/60 backdrop-blur-sm border-2 border-gray-400/50 rounded-xl p-2 sm:p-4 h-full">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
                 <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-yellow-400" />
-                  CANVAS EDITOR
+                  {editMode === "ai-edit" ? "✨ AI EDIT PREVIEW" : "CANVAS EDITOR"}
                 </Label>
                 <div className="flex items-center gap-2">
                   <Badge
@@ -1404,7 +1679,7 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                 </div>
               </div>
 
-              <div className="relative bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-600 min-h-[500px] flex items-center justify-center p-4">
+              <div className="relative bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-600 min-h-[300px] lg:min-h-[500px] h-[50vh] lg:h-auto flex items-center justify-center p-2 sm:p-4">
                 {showComparison && result ? (
                   <div className="flex w-full h-full max-w-4xl">
                     <div className="flex-1 relative border-r border-gray-600">
@@ -1431,9 +1706,9 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                           className="max-w-full max-h-full object-contain"
                           style={{ transform: `scale(${zoom / 100})` }}
                           onLoad={() => {}}
-                          onError={(e) =>
-                            console.error("❌ Result image failed", e)
-                          }
+                          onError={() => {
+                            // Handle image load error silently
+                          }}
                           crossOrigin="anonymous"
                         />
                       </div>
@@ -1451,31 +1726,45 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                           display: "block",
                         }}
                       />
-                      <canvas
-                        ref={maskCanvasRef}
-                        className={`absolute top-0 left-0 cursor-crosshair transition-opacity pointer-events-auto ${
-                          showMask ? "opacity-100" : "opacity-0"
-                        }`}
-                        style={{
-                          transform: `scale(${zoom / 100})`,
-                          transformOrigin: "center center",
-                        }}
-                        onMouseDown={startDrawing}
-                        onMouseMove={draw}
-                        onMouseUp={stopDrawing}
-                        onMouseLeave={stopDrawing}
-                      />
+                      {editMode !== "ai-edit" && (
+                        <canvas
+                          ref={maskCanvasRef}
+                          className={`absolute top-0 left-0 cursor-crosshair transition-opacity ${
+                            showMask ? "opacity-100" : "opacity-0"
+                          }`}
+                          style={{
+                            transform: `scale(${zoom / 100})`,
+                            transformOrigin: "center center",
+                            pointerEvents: "auto",
+                            zIndex: 10,
+                          }}
+                          onMouseDown={startDrawing}
+                          onMouseMove={draw}
+                          onMouseUp={stopDrawing}
+                          onMouseLeave={stopDrawing}
+                        />
+                      )}
+
+
 
                       <div className="absolute top-2 right-2 bg-black/70 text-green-400 px-2 py-1 rounded text-xs font-mono font-bold">
                         {canvasRef.current?.width}×{canvasRef.current?.height}px
                         {canvasDimensions
                           ? ` (${Math.round(canvasDimensions.ratio * 100)}%)`
                           : ""}
-                        {showComparison ? " | COMPARISON" : " | EDITING"}
+                        {showComparison ? " | COMPARISON" : editMode === "ai-edit" ? " | AI EDIT" : " | EDITING"}
+                        {editMode !== "ai-edit" && maskCanvasRef.current && (
+                          <div className="text-cyan-400">
+                            | BRUSH: {tool.toUpperCase()}
+                          </div>
+                        )}
                       </div>
 
                       <div className="absolute bottom-2 left-2 bg-black/70 text-cyan-400 px-2 py-1 rounded text-xs font-mono">
-                        {imageUrl ? "IMAGE LOADED" : "NO IMAGE"}
+                        {editMode === "ai-edit" 
+                          ? (originalImageForAI ? "✨ READY FOR AI EDIT" : "NO IMAGE") 
+                          : (imageUrl ? "IMAGE LOADED" : "NO IMAGE")
+                        }
                       </div>
                     </div>
 
@@ -1499,52 +1788,127 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
           </div>
 
           {/* Right Panel - Prompts & Actions */}
-          <div className="xl:col-span-1 space-y-4 overflow-y-auto pl-2 h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-cyan-500/20">
+          <div className="lg:col-span-1 space-y-4 lg:overflow-y-auto lg:pl-2 lg:h-[calc(100vh-20rem)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50 [&::-webkit-scrollbar]:border-l [&::-webkit-scrollbar]:border-cyan-500/20">
             {/* Quick Prompts */}
             <div className="bg-gradient-to-br from-black/60 via-pink-900/20 to-purple-900/20 backdrop-blur-sm border-2 border-pink-400/50 rounded-xl p-4">
               <Label className="text-sm font-bold font-mono text-white uppercase tracking-wide mb-3 block flex items-center gap-2">
                 <Wand2 className="w-4 h-4 text-pink-400" />
-                QUICK PROMPTS
+                {editMode === "ai-edit" ? "✨ AI QUICK EDITS" : "QUICK PROMPTS"}
               </Label>
 
-              <Tabs defaultValue="add" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 gap-1 bg-gray-800/50 p-1 mb-3">
-                  <TabsTrigger value="add" className="text-xs font-mono">
-                    ADD
-                  </TabsTrigger>
-                  <TabsTrigger value="change" className="text-xs font-mono">
-                    CHANGE
-                  </TabsTrigger>
-                </TabsList>
+              {editMode === "ai-edit" ? (
+                <Tabs defaultValue="background" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1 bg-gray-800/50 p-1 mb-3">
+                    <TabsTrigger value="style" className="text-xs font-mono px-1 sm:px-3">
+                      STYLE
+                    </TabsTrigger>
+                    <TabsTrigger value="background" className="text-xs font-mono px-1 sm:px-3">
+                      BG
+                    </TabsTrigger>
+                    <TabsTrigger value="objects" className="text-xs font-mono px-1 sm:px-3">
+                      OBJ
+                    </TabsTrigger>
+                    <TabsTrigger value="lighting" className="text-xs font-mono px-1 sm:px-3">
+                      LIGHT
+                    </TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="add" className="space-y-2">
-                  {QUICK_PROMPTS.add.map((quickPrompt, idx) => (
-                    <Button
-                      key={idx}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleQuickPrompt(quickPrompt)}
-                      className="w-full justify-start text-xs font-mono h-8 hover:bg-pink-500/20 hover:border-pink-400"
-                    >
-                      + {quickPrompt}
-                    </Button>
-                  ))}
-                </TabsContent>
+                  <TabsContent value="style" className="space-y-2">
+                    {AI_EDIT_PROMPTS.style.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAiEditPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-purple-500/20 hover:border-purple-400"
+                      >
+                        🎨 {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
 
-                <TabsContent value="change" className="space-y-2">
-                  {QUICK_PROMPTS.change.map((quickPrompt, idx) => (
-                    <Button
-                      key={idx}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleQuickPrompt(quickPrompt)}
-                      className="w-full justify-start text-xs font-mono h-8 hover:bg-pink-500/20 hover:border-pink-400"
-                    >
-                      ≫ {quickPrompt}
-                    </Button>
-                  ))}
-                </TabsContent>
-              </Tabs>
+                  <TabsContent value="background" className="space-y-2">
+                    {AI_EDIT_PROMPTS.background.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAiEditPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-cyan-500/20 hover:border-cyan-400"
+                      >
+                        🌄 {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
+
+                  <TabsContent value="objects" className="space-y-2">
+                    {AI_EDIT_PROMPTS.objects.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAiEditPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-green-500/20 hover:border-green-400"
+                      >
+                        ✨ {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
+
+                  <TabsContent value="lighting" className="space-y-2">
+                    {AI_EDIT_PROMPTS.lighting.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAiEditPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-yellow-500/20 hover:border-yellow-400"
+                      >
+                        💡 {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <Tabs defaultValue="add" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 gap-1 bg-gray-800/50 p-1 mb-3">
+                    <TabsTrigger value="add" className="text-xs font-mono">
+                      ADD
+                    </TabsTrigger>
+                    <TabsTrigger value="change" className="text-xs font-mono">
+                      CHANGE
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="add" className="space-y-2">
+                    {QUICK_PROMPTS.add.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleQuickPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-pink-500/20 hover:border-pink-400"
+                      >
+                        + {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
+
+                  <TabsContent value="change" className="space-y-2">
+                    {QUICK_PROMPTS.change.map((quickPrompt, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleQuickPrompt(quickPrompt)}
+                        className="w-full justify-start text-xs font-mono h-8 px-2 sm:px-3 hover:bg-pink-500/20 hover:border-pink-400"
+                      >
+                        ≫ {quickPrompt}
+                      </Button>
+                    ))}
+                  </TabsContent>
+                </Tabs>
+              )}
             </div>
 
             {/* Improved Prompt Input */}
@@ -1560,41 +1924,67 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     DESCRIBE CHANGES
                   </Label>
 
-                  <div className="text-xs font-mono text-cyan-400 mb-2 bg-black/30 p-2 rounded border border-cyan-400/20">
-                    💡 <strong>EXAMPLES:</strong>
-                    <br />• add a red ribbon around the neck
-                    <br />• change the collar to blue
-                    <br />• add sunglasses
-                    <br />• make the background winter scene
-                    <br />
-                    <span className="text-yellow-300">
-                      ✨ Be specific about location and what you want!
-                    </span>
-                  </div>
+                  {editMode === "ai-edit" ? (
+                    <div className="text-xs font-mono text-purple-400 mb-2 bg-black/30 p-2 rounded border border-purple-400/20">
+                      ✨ <strong>AI EDIT EXAMPLES:</strong>
+                      <br />• change background to sunset
+                      <br />• add sunglasses
+                      <br />• make it vintage style
+                      <br />• change shirt to red dress
+                      <br />• add flowers in background
+                      <br />
+                      <span className="text-green-300">
+                        🚀 No masking needed - just describe your edit!
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-xs font-mono text-cyan-400 mb-2 bg-black/30 p-2 rounded border border-cyan-400/20">
+                      💡 <strong>EXAMPLES:</strong>
+                      <br />• add a red ribbon around the neck
+                      <br />• change the collar to blue
+                      <br />• add sunglasses
+                      <br />• make the background winter scene
+                      <br />
+                      <span className="text-yellow-300">
+                        ✨ Be specific about location and what you want!
+                      </span>
+                    </div>
+                  )}
 
                   <Textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="add a red ribbon around the neck, change to blue color..."
-                    className="min-h-[80px] bg-gray-800/50 border-2 border-cyan-400/30 text-white placeholder-gray-400 font-mono text-xs resize-none"
+                    value={editMode === "ai-edit" ? aiEditPrompt : prompt}
+                    onChange={(e) => editMode === "ai-edit" ? setAiEditPrompt(e.target.value) : setPrompt(e.target.value)}
+                    placeholder={editMode === "ai-edit" 
+                      ? "change background to sunset, add sunglasses, make it vintage style..."
+                      : "add a red ribbon around the neck, change to blue color..."
+                    }
+                    className="min-h-[80px] bg-gray-800/50 border-2 border-cyan-400/30 text-white placeholder-gray-400 font-mono text-xs resize-none [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50"
                   />
 
-                  {prompt.trim() && (
+                  {((editMode === "ai-edit" && aiEditPrompt.trim()) || (editMode !== "ai-edit" && prompt.trim())) && (
                     <div className="mt-2 text-xs font-mono">
-                      {prompt.toLowerCase().includes("edit this") ? (
-                        <div className="text-red-400 bg-red-900/20 p-2 rounded border border-red-400/30">
-                          ❌ Remove `edit this` - just describe what you want:
-                          add red ribbon
-                        </div>
-                      ) : prompt.trim().length < 3 ? (
-                        <div className="text-yellow-400 bg-yellow-900/20 p-2 rounded border border-yellow-400/30">
-                          ⚠️ Be more specific about what you want to change
-                        </div>
-                      ) : (
-                        <div className="text-green-400 bg-green-900/20 p-2 rounded border border-green-400/30">
-                          ✅ Good prompt! This will be sent to the AI.
-                        </div>
-                      )}
+                      {(() => {
+                        const currentPrompt = editMode === "ai-edit" ? aiEditPrompt : prompt;
+                        if (currentPrompt.toLowerCase().includes("edit this")) {
+                          return (
+                            <div className="text-red-400 bg-red-900/20 p-2 rounded border border-red-400/30">
+                              ❌ Remove `edit this` - just describe what you want
+                            </div>
+                          );
+                        } else if (currentPrompt.trim().length < 3) {
+                          return (
+                            <div className="text-yellow-400 bg-yellow-900/20 p-2 rounded border border-yellow-400/30">
+                              ⚠️ Be more specific about what you want to change
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="text-green-400 bg-green-900/20 p-2 rounded border border-green-400/30">
+                              ✅ Good prompt! This will be sent to the AI.
+                            </div>
+                          );
+                        }
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1607,35 +1997,42 @@ export default function AIImageEditor({ onBack }: ImageEditorProps) {
                     value={negativePrompt}
                     onChange={(e) => setNegativePrompt(e.target.value)}
                     placeholder="what to avoid..."
-                    className="min-h-[60px] bg-gray-800/50 border-2 border-cyan-400/30 text-white placeholder-gray-400 font-mono text-xs resize-none"
+                    className="min-h-[60px] bg-gray-800/50 border-2 border-cyan-400/30 text-white placeholder-gray-400 font-mono text-xs resize-none [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-800/50 [&::-webkit-scrollbar-thumb]:bg-cyan-500/50 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/50"
                   />
                 </div>
 
                 <Button
-                  onClick={processEdit}
-                  disabled={
-                    !prompt.trim() ||
-                    isProcessing ||
-                    prompt.toLowerCase().includes("edit this")
-                  }
+                  onClick={editMode === "ai-edit" ? processAIEdit : processEdit}
+                  disabled={(() => {
+                    const currentPrompt = editMode === "ai-edit" ? aiEditPrompt : prompt;
+                    const hasImage = editMode === "ai-edit" ? (originalImageForAI || imageUrl) : imageUrl;
+                    return (
+                      !currentPrompt.trim() ||
+                      isProcessing ||
+                      currentPrompt.toLowerCase().includes("edit this") ||
+                      (editMode === "ai-edit" && !hasImage)
+                    );
+                  })()}
                   className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 font-mono text-sm py-6 uppercase tracking-wide disabled:opacity-50"
                 >
                   {isProcessing ? (
                     <div className="flex items-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      PROCESSING...
+                      {editMode === "ai-edit" ? "AI EDITING..." : "PROCESSING..."}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
-                      APPLY EDIT
+                      {editMode === "ai-edit" ? "✨ AI EDIT" : "APPLY EDIT"}
                     </div>
                   )}
                 </Button>
 
-                {prompt.trim() && (
+
+
+                {((editMode === "ai-edit" && aiEditPrompt.trim()) || (editMode !== "ai-edit" && prompt.trim())) && (
                   <Button
-                    onClick={() => setPrompt("")}
+                    onClick={() => editMode === "ai-edit" ? setAiEditPrompt("") : setPrompt("")}
                     variant="outline"
                     size="sm"
                     className="w-full font-mono text-xs border-gray-400/50 text-gray-300 hover:bg-gray-500/20"
