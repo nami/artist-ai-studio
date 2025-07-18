@@ -29,6 +29,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Check status from Replicate directly
+    console.log("🔍 Checking Replicate training status for:", trainingId);
+
+    if (!process.env.REPLICATE_API_TOKEN) {
+      console.error("❌ REPLICATE_API_TOKEN not found");
+      return NextResponse.json(
+        { error: "API token not configured" },
+        { status: 500 }
+      );
+    }
+
     const replicateResponse = await fetch(
       `https://api.replicate.com/v1/trainings/${trainingId}`,
       {
@@ -38,10 +48,20 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    console.log("📊 Replicate API response status:", replicateResponse.status);
+
     if (!replicateResponse.ok) {
-      console.error("❌ Failed to fetch training status from Replicate");
+      const errorText = await replicateResponse.text();
+      console.error(
+        "❌ Failed to fetch training status from Replicate:",
+        replicateResponse.status,
+        errorText
+      );
       return NextResponse.json(
-        { error: "Failed to fetch training status" },
+        {
+          error: "Failed to fetch training status",
+          details: `Replicate API error: ${replicateResponse.status} - ${errorText}`,
+        },
         { status: 500 }
       );
     }
@@ -54,7 +74,6 @@ export async function POST(request: NextRequest) {
       training_status: string;
       updated_at: string;
       model_version?: string;
-      completed_at?: string;
       error_message?: string;
     } = {
       training_status: replicateData.status,
@@ -87,7 +106,6 @@ export async function POST(request: NextRequest) {
 
         updateData.model_version = modelVersion;
         updateData.training_status = "completed";
-        updateData.completed_at = new Date().toISOString();
         updateData.error_message = undefined;
       } else {
         updateData.training_status = "failed";
@@ -137,10 +155,20 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("💥 Sync error:", error);
+    console.error("Error details:", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      type: typeof error,
+      error: error,
+    });
+
     return NextResponse.json(
       {
         error: "Failed to sync training status",
-        details: error instanceof Error ? error.message : "Unknown error",
+        details:
+          error instanceof Error
+            ? error.message
+            : `Unknown error: ${JSON.stringify(error)}`,
       },
       { status: 500 }
     );
