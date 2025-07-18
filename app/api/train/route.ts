@@ -28,9 +28,15 @@ async function ensureDestination(owner: string, slug: string) {
       license_url: "https://creativecommons.org/licenses/by-nc/4.0/",
       description: "Personal LoRA fine-tunes",
     });
-  } catch (err: any) {
-    const code = err?.statusCode ?? err?.status ?? null;
-    const txt = (err?.detail ?? err?.message ?? "").toString();
+  } catch (err: unknown) {
+    const error = err as {
+      statusCode?: number;
+      status?: number;
+      detail?: string;
+      message?: string;
+    };
+    const code = error?.statusCode ?? error?.status ?? null;
+    const txt = (error?.detail ?? error?.message ?? "").toString();
 
     if (code === 409 || /already exists/i.test(txt)) {
       return;
@@ -228,6 +234,8 @@ export async function POST(request: NextRequest) {
       {
         destination,
         input: trainingData,
+        webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/train/webhook`,
+        webhook_events_filter: ["completed"],
       }
     );
 
