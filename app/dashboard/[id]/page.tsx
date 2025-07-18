@@ -14,8 +14,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/lib/supabase";
-
 import { useToast } from "@/hooks/use-toast";
 import { useSound } from "@/contexts/sound-context";
 
@@ -239,24 +237,22 @@ export default function TrainingDashboardPage() {
   };
 
   /* ———————————————————————————————————————————
-     Poll Supabase for status updates
+     Poll API for status updates
   ——————————————————————————————————————————— */
   useEffect(() => {
     if (!trainingId) return;
 
     const poll = setInterval(async () => {
       try {
-        // Use training_id instead of dataset id for polling
-        const { data, error } = await supabase
-          .from("datasets")
-          .select("training_status, error_message")
-          .eq("training_id", trainingId)
-          .single();
+        // Use API instead of direct Supabase client to avoid RLS issues
+        const response = await fetch(`/api/training/${trainingId}`);
 
-        if (error) {
-          console.error("Status poll error:", error);
-          // If dataset not found, the training might not exist or be deleted
-          if (error.code === "PGRST116") {
+        if (!response.ok) {
+          console.error(
+            "Status poll error: API response not ok",
+            response.status
+          );
+          if (response.status === 404) {
             console.warn("Dataset not found for training_id:", trainingId);
             setRealTrainingStatus("failed");
             setErrorMessage(
@@ -267,14 +263,19 @@ export default function TrainingDashboardPage() {
           return;
         }
 
-        if (!data) return;
+        const data = await response.json();
 
-        setRealTrainingStatus(data.training_status);
-        setErrorMessage(data.error_message);
+        if (!data.dataset) {
+          console.warn("No dataset in API response");
+          return;
+        }
+
+        setRealTrainingStatus(data.dataset.training_status);
+        setErrorMessage(data.dataset.error_message);
 
         if (
-          data.training_status === "completed" ||
-          data.training_status === "failed"
+          data.dataset.training_status === "completed" ||
+          data.dataset.training_status === "failed"
         ) {
           clearInterval(poll);
         }
