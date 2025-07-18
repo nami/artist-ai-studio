@@ -7,34 +7,54 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
-    console.log('🔍 Fetching training data for:', id);
+
+    console.log("🔍 Fetching training data for:", id);
 
     // Fetch dataset by training_id
     const { data: datasetData, error: datasetError } = await supabaseAdmin
-      .from('datasets')
-      .select('*')
-      .eq('training_id', id)
+      .from("datasets")
+      .select("*")
+      .eq("training_id", id)
       .single();
 
     if (datasetError) {
-      console.error('Dataset fetch error:', datasetError);
+      console.error("Dataset fetch error:", datasetError);
+
+      // Additional debugging - check if the ID exists as a dataset ID instead
+      const { data: datasetByIdData, error: datasetByIdError } =
+        await supabaseAdmin
+          .from("datasets")
+          .select("id, training_id, training_status, subject_name")
+          .eq("id", id)
+          .single();
+
+      if (datasetByIdData) {
+        console.warn("⚠️ Found dataset by ID instead of training_id:", {
+          id: datasetByIdData.id,
+          training_id: datasetByIdData.training_id,
+          status: datasetByIdData.training_status,
+          subject: datasetByIdData.subject_name,
+        });
+      } else {
+        console.error("❌ Dataset not found by ID either:", datasetByIdError);
+      }
+
       return NextResponse.json(
-        { error: 'Training not found' },
+        { error: "Training not found" },
         { status: 404 }
       );
     }
 
     // Fetch training images
     const { data: imagesData, error: imagesError } = await supabaseAdmin
-      .from('training_images')
-      .select('*')
-      .eq('dataset_id', datasetData.id);
+      .from("training_images")
+      .select("*")
+      .eq("dataset_id", datasetData.id);
 
     if (imagesError) {
-      console.error('Images fetch error:', imagesError);
+      console.error("Images fetch error:", imagesError);
       return NextResponse.json(
-        { error: 'Failed to load training images' },
+        { error: "Failed to load training images" },
         { status: 500 }
       );
     }
@@ -48,34 +68,34 @@ export async function GET(
 
     const imageUrls = imagesData.map((img) => img.image_url);
 
-    console.log('✅ Training data loaded:', {
+    console.log("✅ Training data loaded:", {
       dataset: datasetData.subject_name,
-      imageCount: imageUrls.length
+      imageCount: imageUrls.length,
     });
 
     // 🆕 ADD TRAINING STATUS CHECK
-    let trainingStatus = {
-      status: datasetData.status || 'unknown',
+    const trainingStatus = {
+      status: datasetData.status || "unknown",
       progress: 0,
       model_url: datasetData.model_url || null,
       error: datasetData.error_message || null,
       started_at: datasetData.created_at,
-      completed_at: datasetData.completed_at
+      completed_at: datasetData.completed_at,
     };
 
     // Calculate progress based on status
     switch (trainingStatus.status) {
-      case 'starting':
+      case "starting":
         trainingStatus.progress = 10;
         break;
-      case 'processing':
-      case 'training':
+      case "processing":
+      case "training":
         trainingStatus.progress = 50;
         break;
-      case 'completed':
+      case "completed":
         trainingStatus.progress = 100;
         break;
-      case 'failed':
+      case "failed":
         trainingStatus.progress = 0;
         break;
       default:
@@ -83,14 +103,18 @@ export async function GET(
     }
 
     // 🆕 CHECK LIVE STATUS FROM REPLICATE (if still training)
-    if (trainingStatus.status !== 'completed' && trainingStatus.status !== 'failed' && process.env.REPLICATE_API_TOKEN) {
+    if (
+      trainingStatus.status !== "completed" &&
+      trainingStatus.status !== "failed" &&
+      process.env.REPLICATE_API_TOKEN
+    ) {
       try {
-        console.log('🌐 Checking live status from Replicate...');
+        console.log("🌐 Checking live status from Replicate...");
         const replicateResponse = await fetch(
           `https://api.replicate.com/v1/predictions/${id}`,
           {
             headers: {
-              'Authorization': `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+              Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
             },
           }
         );
@@ -101,27 +125,35 @@ export async function GET(
 
           // Update status if different
           if (replicateData.status !== trainingStatus.status) {
-            console.log(`🔄 Updating status: ${trainingStatus.status} → ${replicateData.status}`);
-            
-            const updates: any = {
+            console.log(
+              `🔄 Updating status: ${trainingStatus.status} → ${replicateData.status}`
+            );
+
+            const updates: {
+              status: string;
+              updated_at: string;
+              model_url?: string;
+              completed_at?: string;
+              error_message?: string;
+            } = {
               status: replicateData.status,
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
             };
 
-            if (replicateData.status === 'completed') {
+            if (replicateData.status === "completed") {
               updates.model_url = replicateData.output;
               updates.completed_at = new Date().toISOString();
             }
 
-            if (replicateData.status === 'failed') {
-              updates.error_message = replicateData.error || 'Training failed';
+            if (replicateData.status === "failed") {
+              updates.error_message = replicateData.error || "Training failed";
             }
 
             // Update database
             await supabaseAdmin
-              .from('datasets')
+              .from("datasets")
               .update(updates)
-              .eq('training_id', id);
+              .eq("training_id", id);
 
             // Update our response
             trainingStatus.status = replicateData.status;
@@ -131,16 +163,16 @@ export async function GET(
 
             // Recalculate progress
             switch (replicateData.status) {
-              case 'starting':
+              case "starting":
                 trainingStatus.progress = 10;
                 break;
-              case 'processing':
+              case "processing":
                 trainingStatus.progress = 50;
                 break;
-              case 'completed':
+              case "completed":
                 trainingStatus.progress = 100;
                 break;
-              case 'failed':
+              case "failed":
                 trainingStatus.progress = 0;
                 break;
               default:
@@ -149,7 +181,10 @@ export async function GET(
           }
         }
       } catch (replicateError) {
-        console.warn('⚠️ Could not fetch live status from Replicate:', replicateError);
+        console.warn(
+          "⚠️ Could not fetch live status from Replicate:",
+          replicateError
+        );
         // Continue with DB status
       }
     }
@@ -160,7 +195,7 @@ export async function GET(
       dataset: datasetData,
       trainingImages,
       imageUrls,
-      
+
       // 🆕 New training status fields (for polling)
       id: id,
       status: trainingStatus.status,
@@ -170,19 +205,18 @@ export async function GET(
       logs: null, // Add if you track logs
       started_at: trainingStatus.started_at,
       completed_at: trainingStatus.completed_at,
-      
+
       // Additional useful fields
       subjectName: datasetData.subject_name,
-      imageCount: imageUrls.length
+      imageCount: imageUrls.length,
     });
-
   } catch (err) {
-    console.error('💥 Failed to fetch training data:', err);
-    
-    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    
+    console.error("💥 Failed to fetch training data:", err);
+
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: 'Failed to fetch training data', details: errorMessage },
+      { error: "Failed to fetch training data", details: errorMessage },
       { status: 500 }
     );
   }

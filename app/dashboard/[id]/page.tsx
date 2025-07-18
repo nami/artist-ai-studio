@@ -66,14 +66,22 @@ export default function TrainingDashboardPage() {
   useEffect(() => {
     const fetchTrainingData = async () => {
       try {
+        console.log("🔍 Fetching training data for ID:", trainingId);
         const response = await fetch(`/api/training/${trainingId}`);
 
         if (!response.ok) {
           const errorData = await response.json();
+          console.error("❌ Training API error:", errorData);
           throw new Error(errorData.error || "Failed to fetch training data");
         }
 
         const data = await response.json();
+        console.log("✅ Training data loaded:", {
+          datasetId: data.dataset?.id,
+          trainingId: data.dataset?.training_id,
+          status: data.dataset?.training_status,
+          imageCount: data.trainingImages?.length,
+        });
 
         setDataset(data.dataset);
         setTrainingImages(data.trainingImages);
@@ -234,17 +242,31 @@ export default function TrainingDashboardPage() {
      Poll Supabase for status updates
   ——————————————————————————————————————————— */
   useEffect(() => {
-    if (!dataset?.id) return;
+    if (!trainingId) return;
 
     const poll = setInterval(async () => {
       try {
+        // Use training_id instead of dataset id for polling
         const { data, error } = await supabase
           .from("datasets")
           .select("training_status, error_message")
-          .eq("id", dataset.id)
+          .eq("training_id", trainingId)
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error("Status poll error:", error);
+          // If dataset not found, the training might not exist or be deleted
+          if (error.code === "PGRST116") {
+            console.warn("Dataset not found for training_id:", trainingId);
+            setRealTrainingStatus("failed");
+            setErrorMessage(
+              "Training record not found. It may have been deleted or the training ID is invalid."
+            );
+            clearInterval(poll);
+          }
+          return;
+        }
+
         if (!data) return;
 
         setRealTrainingStatus(data.training_status);
@@ -262,7 +284,7 @@ export default function TrainingDashboardPage() {
     }, 5000); // 5 s
 
     return () => clearInterval(poll);
-  }, [dataset?.id]);
+  }, [trainingId]);
 
   /* ———————————————————————————————————————————
      Elapsed-time counter
