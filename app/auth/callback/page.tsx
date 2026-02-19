@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const hasExchanged = useRef(false);
 
   useEffect(() => {
+    // Prevent double-execution in React Strict Mode (dev) and re-renders
+    if (hasExchanged.current) return;
+    hasExchanged.current = true;
+
     const code = searchParams.get("code");
 
     if (code) {
@@ -21,7 +26,7 @@ export default function AuthCallbackPage() {
         }
       });
     } else {
-      // No code — might be implicit flow fallback, let the auth listener handle it
+      // No code — let the auth listener handle session from URL hash
       router.push("/");
     }
   }, [searchParams, router]);
