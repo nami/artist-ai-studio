@@ -75,9 +75,9 @@ export async function GET(
 
     // 🆕 ADD TRAINING STATUS CHECK
     const trainingStatus = {
-      status: datasetData.status || "unknown",
+      status: datasetData.training_status || "unknown",
       progress: 0,
-      model_url: datasetData.model_url || null,
+      model_url: datasetData.model_version || null,
       error: datasetData.error_message || null,
       started_at: datasetData.created_at,
       completed_at: datasetData.completed_at,
@@ -130,18 +130,18 @@ export async function GET(
             );
 
             const updates: {
-              status: string;
+              training_status: string;
               updated_at: string;
-              model_url?: string;
+              model_version?: string;
               completed_at?: string;
               error_message?: string;
             } = {
-              status: replicateData.status,
+              training_status: replicateData.status,
               updated_at: new Date().toISOString(),
             };
 
             if (replicateData.status === "completed") {
-              updates.model_url = replicateData.output;
+              updates.model_version = replicateData.output;
               updates.completed_at = new Date().toISOString();
             }
 
