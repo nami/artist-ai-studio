@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function AuthCallbackPage() {
+function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const hasExchanged = useRef(false);
@@ -31,14 +31,25 @@ export default function AuthCallbackPage() {
     }
   }, [searchParams, router]);
 
-  return (
-    <div className="min-h-screen bg-black flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-        <p className="text-cyan-400 font-mono text-sm uppercase tracking-widest animate-pulse">
-          Signing you in...
-        </p>
-      </div>
+  return null;
+}
+
+const Spinner = () => (
+  <div className="min-h-screen bg-black flex items-center justify-center">
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+      <p className="text-cyan-400 font-mono text-sm uppercase tracking-widest animate-pulse">
+        Signing you in...
+      </p>
     </div>
+  </div>
+);
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <AuthCallbackInner />
+      <Spinner />
+    </Suspense>
   );
 }
