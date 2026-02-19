@@ -226,17 +226,28 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Only send webhook in production — Replicate requires a public HTTPS URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const webhookUrl = appUrl.startsWith("https://")
+      ? `${appUrl}/api/train/webhook`
+      : undefined;
+
     // 🎯 Use proven ostris trainer with stable parameters
+    const trainingParams: Parameters<typeof replicate.trainings.create>[3] = {
+      destination,
+      input: trainingData,
+    };
+
+    if (webhookUrl) {
+      trainingParams.webhook = webhookUrl;
+      trainingParams.webhook_events_filter = ["completed"];
+    }
+
     const training = await replicate.trainings.create(
       TRAINER_OWNER,
       TRAINER_MODEL,
       TRAINER_VERSION,
-      {
-        destination,
-        input: trainingData,
-        webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/train/webhook`,
-        webhook_events_filter: ["completed"],
-      }
+      trainingParams
     );
 
     console.log(`✅ Training started successfully: ${training.id}`);
