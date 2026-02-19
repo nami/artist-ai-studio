@@ -84,8 +84,7 @@ export async function POST(request: NextRequest) {
             rawVersion = parsed.version || parsed.model || parsed.model_version || parsed.url || parsed.destination || rawVersion;
           } catch { /* keep as-is */ }
         }
-        // Strip sha256 version hash — Replicate predictions.create only needs owner/model
-        model = rawVersion.includes(":") ? rawVersion.split(":")[0] : rawVersion;
+        model = rawVersion;
         isUsingCustomModel = true;
 
         if (
@@ -138,20 +137,23 @@ export async function POST(request: NextRequest) {
       if (isUsingCustomModel || isUsingKontext) {
         let createParams: any;
         
-        // Custom LoRA models and Kontext are both deployed as Replicate models
-        // (owner/model or owner/model:version) — use model format, not version format
-        if (model.includes("/")) {
-          // owner/model or owner/model:version → use model field (latest or pinned)
-          createParams = {
-            model: model.includes(":") ? model.split(":").slice(0, 2).join(":") : model,
-            input,
-          };
+        if (isUsingKontext) {
+          // Kontext is a public model — use model format
+          createParams = { model, input };
         } else {
-          // Bare version hash — use version field
-          createParams = {
-            version: model,
-            input,
-          };
+          // Custom trained LoRA — Replicate requires a specific version hash
+          // model may be "owner/name:sha256:hash", "sha256:hash", or just "owner/name"
+          let versionHash = model;
+          if (model.includes("/") && model.includes(":")) {
+            // "owner/name:sha256:hash" → extract "sha256:hash"
+            versionHash = model.slice(model.indexOf(":") + 1);
+          }
+          if (versionHash.includes("/") && !versionHash.includes(":")) {
+            // Only "owner/name" with no hash — fall back to model format (may 404 if no deployment)
+            createParams = { model: versionHash, input };
+          } else {
+            createParams = { version: versionHash, input };
+          }
         }
 
         // Only add webhook params if we have a webhook URL

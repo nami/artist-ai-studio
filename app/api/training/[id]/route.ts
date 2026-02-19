@@ -160,10 +160,9 @@ export async function GET(
                   rawOutput = parsed.version || parsed.model || parsed.url || rawOutput;
                 } catch { /* keep as-is */ }
               }
-              // Strip sha256 hash — store just owner/model
-              updates.model_version = typeof rawOutput === "string" && rawOutput.includes(":")
-                ? rawOutput.split(":")[0]
-                : rawOutput;
+              // Store full version string e.g. "owner/model:sha256:hash" so generate
+              // route can extract the version hash for Replicate predictions
+              updates.model_version = rawOutput;
               updates.completed_at = new Date().toISOString();
             }
 
