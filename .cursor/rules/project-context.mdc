@@ -1,0 +1,45 @@
+---
+description: Core project context, infrastructure, and known quirks for Artist AI Studio
+alwaysApply: true
+---
+
+# Artist AI Studio — Project Context
+
+## Stack
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS
+- **Auth**: Supabase Auth with PKCE flow (`flowType: 'pkce'` in `lib/supabase.ts`)
+- **Database**: Supabase PostgreSQL (`rtljxrntxibhqujqznis.supabase.co`)
+- **AI Training**: Replicate API — ostris/flux-dev-lora-trainer
+- **Storage**: Vercel Blob (image uploads), Supabase (metadata)
+- **Deployment**: Vercel (production URL: `artist-ai-studio.vercel.app`)
+
+## Database Tables
+`datasets`, `training_images`, `generations`, `gallery`, `training_datasets`
+Schema lives in `supabase/schema.sql` — must be run manually on new Supabase projects.
+
+## Key Conventions
+
+### Column names in `datasets`
+Always use `training_status` and `model_version` (NOT `status` or `model_url`).
+
+### Replicate webhooks
+Only sent in production. The train route checks `appUrl.startsWith("https://")` before attaching a webhook — Replicate requires a public HTTPS URL. On localhost, training still starts but status must be manually synced via `POST /api/train/sync { trainingId }`.
+
+### OAuth callback
+`/auth/callback` is a **client-side page** (`app/auth/callback/page.tsx`), NOT a route handler. PKCE stores the code verifier in `localStorage` — a server route can't access it. The page uses a `useRef` guard to prevent double exchange in React Strict Mode.
+
+### useSearchParams
+Always wrap in `<Suspense>` — Next.js 15 enforces this at build time.
+
+## Environment Variables
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Must match the ref in both anon + service keys |
+| `NEXT_PUBLIC_APP_URL` | Must be the production HTTPS URL for webhooks to work |
+| `REPLICATE_USERNAME` | Set to `nami` — used as model owner on Replicate |
+
+## Common Gotchas
+- Supabase free tier pauses after 7 days inactivity, deletes after 90 days
+- Vercel preview deployments have Deployment Protection enabled by default (causes 401s)
+- After creating a new Supabase project, OAuth providers must be re-enabled manually
+- New Supabase projects need `supabase/schema.sql` run before any DB operations work
