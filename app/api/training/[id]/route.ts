@@ -148,7 +148,22 @@ export async function GET(
             };
 
             if (replicateData.status === "succeeded" || replicateData.status === "completed") {
-              updates.model_version = replicateData.output;
+              // Extract clean owner/model path from Replicate output
+              // ostris trainer returns {version: "owner/model:sha256:..."} or a plain string
+              let rawOutput = replicateData.output;
+              if (typeof rawOutput === "object" && rawOutput !== null) {
+                rawOutput = rawOutput.version || rawOutput.model || rawOutput.url || rawOutput.destination || JSON.stringify(rawOutput);
+              }
+              if (typeof rawOutput === "string" && rawOutput.startsWith("{")) {
+                try {
+                  const parsed = JSON.parse(rawOutput);
+                  rawOutput = parsed.version || parsed.model || parsed.url || rawOutput;
+                } catch { /* keep as-is */ }
+              }
+              // Strip sha256 hash — store just owner/model
+              updates.model_version = typeof rawOutput === "string" && rawOutput.includes(":")
+                ? rawOutput.split(":")[0]
+                : rawOutput;
               updates.completed_at = new Date().toISOString();
             }
 

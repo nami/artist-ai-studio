@@ -75,7 +75,17 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (dataset?.model_version && dataset?.training_status === "completed") {
-        model = dataset.model_version;
+        // model_version can be stored as a JSON string e.g. {"version":"owner/model:sha256:..."}
+        // Parse it and extract just the owner/model path for the Replicate predictions API
+        let rawVersion: string = dataset.model_version;
+        if (rawVersion.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(rawVersion);
+            rawVersion = parsed.version || parsed.model || parsed.model_version || parsed.url || parsed.destination || rawVersion;
+          } catch { /* keep as-is */ }
+        }
+        // Strip sha256 version hash — Replicate predictions.create only needs owner/model
+        model = rawVersion.includes(":") ? rawVersion.split(":")[0] : rawVersion;
         isUsingCustomModel = true;
 
         if (
