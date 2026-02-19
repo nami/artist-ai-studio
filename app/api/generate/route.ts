@@ -128,16 +128,18 @@ export async function POST(request: NextRequest) {
       if (isUsingCustomModel || isUsingKontext) {
         let createParams: any;
         
-        if (isUsingKontext) {
-          // For FLUX.1 Kontext, use the model format
+        // Custom LoRA models and Kontext are both deployed as Replicate models
+        // (owner/model or owner/model:version) — use model format, not version format
+        if (model.includes("/")) {
+          // owner/model or owner/model:version → use model field (latest or pinned)
           createParams = {
-            model,
+            model: model.includes(":") ? model.split(":").slice(0, 2).join(":") : model,
             input,
           };
         } else {
-          // For custom models, use version format
+          // Bare version hash — use version field
           createParams = {
-            version: model.includes(":") ? model.split(":")[1] : model,
+            version: model,
             input,
           };
         }
