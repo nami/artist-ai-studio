@@ -105,6 +105,7 @@ export async function GET(
     // 🆕 CHECK LIVE STATUS FROM REPLICATE (if still training)
     if (
       trainingStatus.status !== "completed" &&
+      trainingStatus.status !== "succeeded" &&
       trainingStatus.status !== "failed" &&
       process.env.REPLICATE_API_TOKEN
     ) {
@@ -129,6 +130,12 @@ export async function GET(
               `🔄 Updating status: ${trainingStatus.status} → ${replicateData.status}`
             );
 
+            // Replicate uses "succeeded"; normalise to our internal "completed"
+            const normalizedStatus =
+              replicateData.status === "succeeded"
+                ? "completed"
+                : replicateData.status;
+
             const updates: {
               training_status: string;
               updated_at: string;
@@ -136,11 +143,11 @@ export async function GET(
               completed_at?: string;
               error_message?: string;
             } = {
-              training_status: replicateData.status,
+              training_status: normalizedStatus,
               updated_at: new Date().toISOString(),
             };
 
-            if (replicateData.status === "completed") {
+            if (replicateData.status === "succeeded" || replicateData.status === "completed") {
               updates.model_version = replicateData.output;
               updates.completed_at = new Date().toISOString();
             }
